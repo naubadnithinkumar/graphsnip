@@ -441,7 +441,7 @@ class Engine:
         return self._finish("outline", path, "\n".join(lines), self.base.file_tokens(rel), [rel])
 
     # ------------------------------------------------------------ savings
-    def route(self, task: str, client: str = "claude", running_tier: str | None = None) -> Result:
+    def route(self, task: str, client: str = "claude", running_tier: str | None = None, handoff: bool = False) -> Result:
         """Pick a model tier for the task, log the decision, and say what to do about it."""
         from graphsnip import router
 
@@ -454,11 +454,11 @@ class Engine:
         model = (cfg["models"].get(client) or {}).get(r.tier)
         self.ledger.record(kind="route", tool="gs_route", query=task[:200], tier=r.tier, score=r.score, status=status,
                            client=client, running=running_tier, model=model, tokens_in=r.tokens_in,
-                           tokens_out=r.tokens_out, reasons=r.reasons, source=self.source, session=self.session, **acct)
+                           tokens_out=r.tokens_out, reasons=r.reasons, handoff=handoff, source=self.source, session=self.session, **acct)
         lines = [f"route: {r.tier} (score {r.score})" + (f" -> {model}" if model else ""), "why: " + "; ".join(r.reasons)]
         if status == "escalate":
-            lines.append(f"ESCALATE: this task needs a {r.tier} tier model but you are running on {running_tier}. "
-                         "Stop and tell the user to re-run it with /graphsnip-deep.")
+            lines.append(f"ESCALATE to {r.tier}" + (f" ({model})" if model else "")
+                         + f": this task needs a stronger model than the {running_tier} one you are running on.")
         elif status == "overpowered":
             lines.append(f"note: a {r.tier} tier model would be enough; the user is running {running_tier}.")
         elif status == "routed":

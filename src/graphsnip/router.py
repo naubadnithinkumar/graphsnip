@@ -117,13 +117,15 @@ def account(cfg: dict, route: Route, status: str) -> dict:
 
 
 def summarize(records: list[dict], cfg: dict) -> dict:
-    rows = [r for r in records if r.get("kind") == "route"]
+    allrows = [r for r in records if r.get("kind") == "route"]
+    rows = [r for r in allrows if not r.get("handoff")]  # a handoff row only logs where an escalated task ran
+    handoffs = [r for r in allrows if r.get("handoff")]
     by_tier = {t: 0 for t in TIERS}
     by_status: dict[str, int] = {}
     for r in rows:
         by_tier[r.get("tier", "standard")] = by_tier.get(r.get("tier", "standard"), 0) + 1
         by_status[r.get("status", "advisory")] = by_status.get(r.get("status", "advisory"), 0) + 1
-    routed = [r for r in rows if r.get("status") == "routed"]
+    routed = [r for r in allrows if r.get("status") == "routed"]
     cheaper = [r for r in routed if _RANK.get(r["tier"], 1) < _RANK[cfg["baseline_tier"]]]
     return {
         "decisions": len(rows),
@@ -135,5 +137,6 @@ def summarize(records: list[dict], cfg: dict) -> dict:
         "usd_saved": round(sum(float(r.get("usd_saved", 0)) for r in routed), 4),
         "usd_potential": round(sum(float(r.get("usd_potential", 0)) for r in rows if r.get("status") in ("advisory", "session")), 4),
         "escalations": by_status.get("escalate", 0),
+        "handoffs": len(handoffs),
         "recent": list(reversed(rows[-8:])),
     }

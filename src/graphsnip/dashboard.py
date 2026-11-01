@@ -131,7 +131,7 @@ def _routing_card(project: Project, recs: list[dict], price: float) -> str:
         _kpi("Routing decisions", n(rs["decisions"]), " · ".join(f"{k} {v}" for k, v in rs["by_tier"].items() if v) or "-"),
         _kpi("Routed to a cheaper model", n(rs["routed_cheaper"]), f"{n(rs['tokens_on_cheaper'])} tokens handled by the light tier"),
         _kpi("Est. dollars saved by routing", f"${rs['usd_saved']:.4f}", f"vs running everything on the {cfg['baseline_tier']} tier", accent=True),
-        _kpi("Escalations", n(rs["escalations"]), "tasks too hard for the pinned light model"),
+        _kpi("Escalations", n(rs["escalations"]), f"{rs['handoffs']} handed to a stronger model automatically"),
     ])
     srows = "".join(f"<tr><td>{e(k)}</td><td class='r'>{v}</td></tr>" for k, v in sorted(rs["by_status"].items()))
     rec = "".join(f"<tr><td>{e(r.get('tier',''))}</td><td>{e(r.get('status',''))}</td><td>{e(str(r.get('query',''))[:60])}</td>"

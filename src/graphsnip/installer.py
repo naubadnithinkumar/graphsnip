@@ -56,19 +56,7 @@ You explore a codebase through the graphsnip tools and report back briefly.
 
 
 # ---------------------------------------------------------------- slash command (/graphsnip)
-def _command_body(args_token: str, running: str | None, client: str, deep: bool = False) -> str:
-    """Instructions behind /graphsnip. `args_token` is the client's placeholder for what the user typed after the command."""
-    route_args = f'task = the request, client = "{client}"' + (f', running_tier = "{running}"' if running else "")
-    escalate = ("" if deep else
-                "   - If the result says ESCALATE, stop and tell the user to re-run the request with `/graphsnip-deep`. Do nothing else.\n")
-    return f"""Use the graphsnip code graph (Graphify under the hood) to answer from exact code instead of reading whole files.
-
-Request: {args_token}
-
-Step 1. Call `gs_route` ({route_args}) once, for the request as a whole.
-{escalate}   - Otherwise continue.
-
-Step 2. Pick the first row that fits the request:
+_ACTIONS = """Pick the first row that fits the request:
 
 | Request looks like | Do this |
 |---|---|
@@ -86,15 +74,48 @@ Rules:
 """
 
 
+def _command_body(args_token: str, running: str | None, client: str, deep: bool = False) -> str:
+    """Instructions behind /graphsnip. `args_token` is the client's placeholder for what the user typed after the command."""
+    route_args = f'task = the request, client = "{client}"' + (f', running_tier = "{running}"' if running else "")
+    if deep:
+        esc = ""
+    elif client == "claude":
+        esc = ("   - If the result says ESCALATE to <tier>, print exactly one line: `Escalating to <model> (<tier> tier) and continuing...`, "
+               "then call the Agent tool (also called Task) with subagent_type `graphsnip-<tier>` and, as its prompt, the user's full original request. "
+               "Return the subagent's answer as your answer. Call no other tool yourself.\n")
+    else:
+        esc = "   - If the result says ESCALATE, stop and tell the user to re-run the request with `/graphsnip-deep`. Do nothing else.\n"
+    return f"""Use the graphsnip code graph (Graphify under the hood) to answer from exact code instead of reading whole files.
+
+Request: {args_token}
+
+Step 1. Call `gs_route` ({route_args}) once, for the request as a whole.
+{esc}   - Otherwise continue.
+
+Step 2. {_ACTIONS}"""
+
+
+def handoff_agent(tier: str, model: str) -> str:
+    """Subagent that /graphsnip hands a task to when the router says the light model is not enough."""
+    return (f"---\nname: graphsnip-{tier}\n"
+            f"description: Stronger-model worker that /graphsnip hands {tier}-tier requests to. Not for direct use.\n"
+            f"model: {model}\n---\n"
+            "Use the graphsnip code graph (Graphify under the hood) to answer from exact code instead of reading whole files.\n\n"
+            "You were handed this request because the router judged it needs a stronger model than the light one. "
+            f'Call `gs_route` once with task = the request, client = "claude", running_tier = "{tier}", handoff = true (this only logs the handoff). '
+            "Then do the work.\n\n" + _ACTIONS)
+
+
 _DESC = "Answer a code question or task from the graphsnip code graph (exact code, token-budgeted)"
 _DESC_DEEP = "Same as /graphsnip but on your session's own model, for harder tasks (refactors, debugging, multi-file changes)"
 _TOOLS = ", ".join(f"mcp__graphsnip__gs_{t}" for t in ("route", "pack", "find", "symbol", "impact", "outline", "savings"))
+_DELEGATE = "Task, Agent"
 
 
 def claude_command(light_model: str | None, deep: bool = False) -> str:
     model = "" if deep or not light_model else f"model: {light_model}\n"
     return (f"---\ndescription: {_DESC_DEEP if deep else _DESC}\nargument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings\n"
-            f"allowed-tools: {_TOOLS}, Read\n{model}---\n"
+            f"allowed-tools: {_TOOLS}, Read" + ("" if deep else f", {_DELEGATE}") + f"\n{model}---\n"
             + _command_body("$ARGUMENTS", "session" if deep else ("light" if light_model else None), "claude", deep))
 
 
@@ -245,6 +266,15 @@ def _claude(root: Path, plan: Plan, allow_tools: bool, strict: bool) -> None:
     plan.add(cpath, f"add /graphsnip slash command (pinned to model '{lm}')" if lm else "add /graphsnip slash command",
              lambda: _write_owned(cpath, claude_command(lm)))
     plan.add(dpath, "add /graphsnip-deep (session model, for hard tasks)", lambda: _write_owned(dpath, claude_command(lm, deep=True)))
+    from graphsnip import router
+
+    cmodels = router.config(Project(root))["models"].get("claude") or {}
+    for tier in ("standard", "heavy"):
+        m = cmodels.get(tier)
+        if m:
+            ap = root / ".claude" / "agents" / f"graphsnip-{tier}.md"
+            plan.add(ap, f"add auto-escalation subagent graphsnip-{tier} (model '{m}')",
+                     lambda ap=ap, tier=tier, m=m: _write_owned(ap, handoff_agent(tier, m)))
     plan.add(root / ".claude" / "agents" / "graphsnip-explorer.md", "add cheap read-only explorer subagent (Haiku)",
              lambda: (root / ".claude" / "agents").mkdir(parents=True, exist_ok=True) or
              (root / ".claude" / "agents" / "graphsnip-explorer.md").write_text(EXPLORER_AGENT, encoding="utf-8"))
@@ -375,6 +405,9 @@ def uninstall(root: str, clients: list[str], codex_scope: str = "project") -> li
         for nm in ("graphsnip", "graphsnip-deep"):
             if _remove_owned(r / ".claude" / "commands" / f"{nm}.md"):
                 out.append(f"removed /{nm} slash command")
+        for tier in ("standard", "heavy"):
+            if _remove_owned(r / ".claude" / "agents" / f"graphsnip-{tier}.md"):
+                out.append(f"removed graphsnip-{tier} subagent")
         a = r / ".claude" / "agents" / "graphsnip-explorer.md"
         if a.exists():
             a.unlink()

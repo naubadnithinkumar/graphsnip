@@ -153,6 +153,10 @@ def test_slash_commands_installed_and_removed(tmp_path, monkeypatch):
     codex = (codex_home / "prompts" / "graphsnip.md").read_text()
     assert "$ARGUMENTS" in claude and "mcp__graphsnip__gs_pack" in claude and "cg_" not in claude
     assert "model: haiku" in claude and "ESCALATE" in claude
+    assert "subagent_type `graphsnip-<tier>`" in claude and "Escalating to" in claude
+    assert "model: sonnet" in (repo / ".claude" / "agents" / "graphsnip-standard.md").read_text()
+    assert "model: opus" in (repo / ".claude" / "agents" / "graphsnip-heavy.md").read_text()
+    assert "/graphsnip-deep" in copilot  # copilot cannot delegate, so it keeps the manual hand-off
     deep = (repo / ".claude" / "commands" / "graphsnip-deep.md").read_text()
     assert "model:" not in deep and 'running_tier = "session"' in deep
     assert "name: graphsnip" in copilot and "graphsnip/*" in copilot
@@ -160,6 +164,7 @@ def test_slash_commands_installed_and_removed(tmp_path, monkeypatch):
     assert "mcp__graphsnip__gs_pack" in (repo / ".claude" / "agents" / "graphsnip-explorer.md").read_text()
     installer.uninstall(str(repo), ["all"])
     assert not (repo / ".claude" / "commands" / "graphsnip.md").exists()
+    assert not (repo / ".claude" / "agents" / "graphsnip-standard.md").exists()
     assert not (repo / ".github" / "prompts" / "graphsnip.prompt.md").exists()
     assert not (codex_home / "prompts" / "graphsnip.md").exists()
 

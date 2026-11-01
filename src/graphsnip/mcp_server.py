@@ -72,7 +72,8 @@ TOOLS = [
                        "(light, standard, heavy, or session for 'whatever this session uses').",
         "inputSchema": {"type": "object", "properties": {
             "task": {"type": "string"}, "running_tier": {"type": "string", "enum": ["light", "standard", "heavy", "session"]},
-            "client": {"type": "string", "default": "claude"}}, "required": ["task"]},
+            "client": {"type": "string", "default": "claude"},
+            "handoff": {"type": "boolean", "default": False}}, "required": ["task"]},
     },
     {
         "name": "gs_savings",
@@ -96,7 +97,7 @@ def _call(engine: Engine, name: str, args: dict) -> tuple[str, bool]:
         r = engine.outline(str(args.get("path", "")))
     elif name == "gs_route":
         r = engine.route(str(args.get("task", "")), client=str(args.get("client", "claude")),
-                         running_tier=args.get("running_tier"))
+                         running_tier=args.get("running_tier"), handoff=bool(args.get("handoff", False)))
     elif name == "gs_savings":
         r = engine.savings()
     else:
