@@ -2,7 +2,7 @@ import textwrap
 
 import pytest
 
-from code_graf.project import Project
+from graphsnip.project import Project
 
 FILES = {
     "app/validators.py": '''

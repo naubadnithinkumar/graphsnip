@@ -1,5 +1,5 @@
 """Shell-output compression. Test, build and git logs often cost more tokens than
-the code they are about. `code-graf run -- <cmd>` runs a command, keeps the
+the code they are about. `graphsnip run -- <cmd>` runs a command, keeps the
 exit code, and prints a compressed version of its output. The saving is
 measured exactly (raw tokens vs compressed tokens), not estimated."""
 from __future__ import annotations
@@ -8,9 +8,9 @@ import re
 import subprocess
 import sys
 
-from code_graf import ledger as _ledger
-from code_graf.project import Project
-from code_graf.tokens import count_tokens
+from graphsnip import ledger as _ledger
+from graphsnip.project import Project
+from graphsnip.tokens import count_tokens
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _NOISE = re.compile(r"^\s*(\d{1,3}%|[#=>\-\.\s\|/\\█▏▎▍▌▋▊▉]{12,})\s*$")
@@ -92,12 +92,12 @@ def compress(text: str, max_lines: int = 120, head: int = 20, tail: int = 30) ->
 
 def run(argv: list[str], root: str = ".") -> int:
     if not argv:
-        sys.stderr.write("usage: code-graf run -- <command> [args...]\n")
+        sys.stderr.write("usage: graphsnip run -- <command> [args...]\n")
         return 2
     try:
         r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     except FileNotFoundError:
-        sys.stderr.write(f"code-graf run: command not found: {argv[0]}\n")
+        sys.stderr.write(f"graphsnip run: command not found: {argv[0]}\n")
         return 127
     raw = r.stdout or ""
     small = compress(raw)
@@ -106,9 +106,9 @@ def run(argv: list[str], root: str = ".") -> int:
         small, small_t = raw, raw_t
     sys.stdout.write(small + ("\n" if small and not small.endswith("\n") else ""))
     if small_t < raw_t:
-        sys.stdout.write(f"[code-graf: output compressed {raw_t} → {small_t} tokens]\n")
+        sys.stdout.write(f"[graphsnip: output compressed {raw_t} → {small_t} tokens]\n")
     try:
-        _ledger.Ledger(Project(root).cg_dir).record(
+        _ledger.Ledger(Project(root).gs_dir).record(
             kind="call", tool="shell", query=" ".join(argv)[:160], returned=small_t, baseline=raw_t,
             files=[], source="shell", session="shell", deduped=False)
     except Exception:

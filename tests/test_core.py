@@ -1,11 +1,11 @@
 import json
 
-from code_graf import ledger as L
-from code_graf.baseline import query_terms
-from code_graf.engine import Engine
-from code_graf.shellfilter import compress
-from code_graf.slicer import shorten_docstring, slice_symbol
-from code_graf.tokens import count_tokens
+from graphsnip import ledger as L
+from graphsnip.baseline import query_terms
+from graphsnip.engine import Engine
+from graphsnip.shellfilter import compress
+from graphsnip.slicer import shorten_docstring, slice_symbol
+from graphsnip.tokens import count_tokens
 
 
 # ------------------------------------------------------------------ slicer
@@ -115,7 +115,7 @@ def test_impact_finds_callers(repo):
 def test_find_and_pack(repo):
     e = Engine(repo, source="cli")
     f = e.find("how are users created and validated")
-    assert f.ok and "cg_symbol" in f.text
+    assert f.ok and "gs_symbol" in f.text
     p = e.pack("how are users created and validated", budget=2500)
     assert p.ok and "```" in p.text and "create_user" in p.text
     assert p.returned <= 2500 * 1.25
@@ -129,7 +129,7 @@ def test_calls_are_written_to_the_ledger(repo):
 
 
 def test_bench_runs_and_checks_quality(repo):
-    from code_graf.bench import run_bench
+    from graphsnip.bench import run_bench
 
     tasks = repo / "tasks.json"
     tasks.write_text(json.dumps([
@@ -139,5 +139,5 @@ def test_bench_runs_and_checks_quality(repo):
     res = run_bench(str(repo), str(tasks))
     t = res["totals"]
     assert t["tasks"] == 2 and t["answered"] == 2
-    assert all(r["codegraf_has_code"] for r in res["tasks"])
-    assert (repo / ".code-graf" / "bench.json").exists()
+    assert all(r["graphsnip_has_code"] for r in res["tasks"])
+    assert (repo / ".graphsnip" / "bench.json").exists()

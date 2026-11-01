@@ -1,8 +1,8 @@
 {
-  "name": "code-graf",
+  "name": "graphsnip",
   "version": "0.1.0",
-  "description": "Thin npm wrapper for code-graf, a token-saving layer on top of Graphify (the real tool is a Python package).",
-  "bin": { "code-graf": "bin/code-graf.js" },
+  "description": "Thin npm wrapper for graphsnip, a token-saving layer on top of Graphify (the real tool is a Python package).",
+  "bin": { "graphsnip": "bin/graphsnip.js" },
   "files": ["bin", "README.md"],
   "engines": { "node": ">=16" },
   "license": "Apache-2.0",

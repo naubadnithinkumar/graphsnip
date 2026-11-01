@@ -12,10 +12,10 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from code_graf import __version__
-from code_graf import ledger as _ledger
-from code_graf.project import Project
-from code_graf.tokens import method
+from graphsnip import __version__
+from graphsnip import ledger as _ledger
+from graphsnip.project import Project
+from graphsnip.tokens import method
 
 e = html.escape
 
@@ -46,7 +46,7 @@ def _bars(items: list[tuple[str, int, str, str]], width: int = 980) -> str:
 
 def _lines(timeline: list[dict], width: int = 720, height: int = 260) -> str:
     if len(timeline) < 2:
-        return '<p class="muted">Not enough calls yet to draw a curve. Use the tools (or run <code>code-graf bench</code>) and re-generate.</p>'
+        return '<p class="muted">Not enough calls yet to draw a curve. Use the tools (or run <code>graphsnip bench</code>) and re-generate.</p>'
     pad_l, pad_r, pad_t, pad_b = 54, 14, 14, 34
     W, H = width - pad_l - pad_r, height - pad_t - pad_b
     mx = max(t["baseline"] for t in timeline) or 1
@@ -61,7 +61,7 @@ def _lines(timeline: list[dict], width: int = 720, height: int = 260) -> str:
     base = " ".join(f"{X(i):.1f},{Y(t['baseline']):.1f}" for i, t in enumerate(timeline))
     ret = " ".join(f"{X(i):.1f},{Y(t['returned']):.1f}" for i, t in enumerate(timeline))
     area = base + " " + " ".join(f"{X(i):.1f},{Y(t['returned']):.1f}" for i, t in reversed(list(enumerate(timeline))))
-    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Cumulative tokens with and without code-graf" class="chart">']
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Cumulative tokens with and without graphsnip" class="chart">']
     for frac in (0, 0.25, 0.5, 0.75, 1):
         y = pad_t + H * (1 - frac)
         out.append(f'<line x1="{pad_l}" x2="{width - pad_r}" y1="{y:.1f}" y2="{y:.1f}" class="grid"/>')
@@ -120,11 +120,11 @@ footer{color:var(--mut);font-size:12.5px;margin-top:26px}
 def build_html(project: Project, graph_href: str) -> str:
     cfg = project.config()
     price = float(cfg.get("price_per_mtok", 3.0))
-    recs = _ledger.Ledger(project.cg_dir).read()
+    recs = _ledger.Ledger(project.gs_dir).read()
     live = _ledger.summarize(recs, price, sources={"agent", "cli", "shell"})
     bench_s = _ledger.summarize(recs, price, sources={"bench"})
     bench = None
-    bp = project.cg_dir / "bench.json"
+    bp = project.gs_dir / "bench.json"
     if bp.exists():
         try:
             bench = json.loads(bp.read_text(encoding="utf-8"))
@@ -166,7 +166,7 @@ def build_html(project: Project, graph_href: str) -> str:
             ("grep + read files", t["naive_tokens"], "b-grep", "no graph"),
             ("Graphify + read files", t["graphify_read_tokens"], "b-gfyread", "map, then read whole files"),
             ("Graphify query alone", t["graphify_tokens"], "b-gfy", "map only, no source code"),
-            ("code-graf", t["codegraf_tokens"], "b-cg", f"{t['answered']}/{t['tasks']} answered with code"),
+            ("graphsnip", t["graphsnip_tokens"], "b-cg", f"{t['answered']}/{t['tasks']} answered with code"),
         ]
         sections.append(
             f'<section class="card"><h2>Same questions, four approaches</h2>'
@@ -175,7 +175,7 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<div class="callout" style="margin-top:12px"><b>{t["saved_pct"]}% fewer tokens</b> than grep + read, and '
             f'<b>{t["saved_vs_graphify_read_pct"]}% fewer</b> than using Graphify alone and then reading the files it points to. '
             f'Graphify\'s query is cheaper still, but it returns a map without source code, so the agent has to read files afterwards. '
-            f'code-graf returns the exact code in the same step.</div></section>')
+            f'graphsnip returns the exact code in the same step.</div></section>')
 
     # --- timeline + by tool
     tl_src = head["timeline"]
@@ -187,8 +187,8 @@ def build_html(project: Project, graph_href: str) -> str:
     sections.append(
         f'<div class="two"><section class="card"><h2>Cumulative tokens</h2><div class="sub">{e(head_label)}</div>'
         f'<div style="margin-top:8px">{_lines(tl_src)}</div>'
-        f'<div class="legend"><span><i class="dot" style="background:var(--grep)"></i>without code-graf (baseline)</span>'
-        f'<span><i class="dot" style="background:var(--cg)"></i>with code-graf</span></div></section>'
+        f'<div class="legend"><span><i class="dot" style="background:var(--grep)"></i>without graphsnip (baseline)</span>'
+        f'<span><i class="dot" style="background:var(--cg)"></i>with graphsnip</span></div></section>'
         f'<section class="card"><h2>By tool</h2><div class="sub">where the savings come from</div>'
         f'<table style="margin-top:8px"><thead><tr><th>Tool</th><th class="r">Calls</th><th class="r">Returned</th><th class="r">Baseline</th><th class="r">Saved</th></tr></thead>'
         f'<tbody>{rows or "<tr><td colspan=5 class=muted>No calls recorded yet.</td></tr>"}</tbody></table>'
@@ -198,15 +198,15 @@ def build_html(project: Project, graph_href: str) -> str:
     if bench:
         trs = ""
         for r in bench["tasks"]:
-            saved = f"{100 * (1 - r['codegraf_tokens'] / r['naive_tokens']):.0f}%" if r["naive_tokens"] and r["codegraf_tokens"] else "-"
+            saved = f"{100 * (1 - r['graphsnip_tokens'] / r['naive_tokens']):.0f}%" if r["naive_tokens"] and r["graphsnip_tokens"] else "-"
             trs += (f'<tr><td>{e(r["question"])}</td><td><span class="chip">{e(r["type"])}</span></td><td class="r">{n(r["naive_tokens"])}</td>'
-                    f'<td class="r">{n(r["graphify_read_tokens"])}</td><td class="r">{n(r["codegraf_tokens"])}</td><td class="r">{saved}</td>'
-                    f'<td class="{"ok" if r["codegraf_hit"] else "no"}">{"✓" if r["codegraf_hit"] else "✗"}</td></tr>')
+                    f'<td class="r">{n(r["graphify_read_tokens"])}</td><td class="r">{n(r["graphsnip_tokens"])}</td><td class="r">{saved}</td>'
+                    f'<td class="{"ok" if r["graphsnip_hit"] else "no"}">{"✓" if r["graphsnip_hit"] else "✗"}</td></tr>')
         sections.append(
-            f'<section class="card"><h2>Benchmark tasks</h2><div class="sub">edit <code>.code-graf/tasks.json</code> to use your own questions · '
-            f're-run <code>code-graf bench</code></div>'
+            f'<section class="card"><h2>Benchmark tasks</h2><div class="sub">edit <code>.graphsnip/tasks.json</code> to use your own questions · '
+            f're-run <code>graphsnip bench</code></div>'
             f'<div style="overflow:auto"><table style="margin-top:8px"><thead><tr><th>Question</th><th>Type</th><th class="r">grep + read</th>'
-            f'<th class="r">Graphify + read</th><th class="r">code-graf</th><th class="r">Saved</th><th>OK</th></tr></thead><tbody>{trs}</tbody></table></div></section>')
+            f'<th class="r">Graphify + read</th><th class="r">graphsnip</th><th class="r">Saved</th><th>OK</th></tr></thead><tbody>{trs}</tbody></table></div></section>')
 
     # --- recent calls
     if live["recent"]:
@@ -236,22 +236,22 @@ def build_html(project: Project, graph_href: str) -> str:
 
     sections.append(
         '<section class="card"><details><summary>How these numbers are measured</summary>'
-        '<p><b>Baseline.</b> For each call, code-graf prices what an agent without the graph would realistically do: grep the question\'s terms and read the '
+        '<p><b>Baseline.</b> For each call, graphsnip prices what an agent without the graph would realistically do: grep the question\'s terms and read the '
         'top 8 matching files in full (symbol reads are priced against reading the whole file). This is deliberately conservative: it is far less than '
         '"read the whole repo", the number Graphify\'s own benchmark compares against.</p>'
-        f'<p><b>Tokens.</b> {e(method())}. Install <code>code-graf[accurate]</code> for exact cl100k counts; absolute numbers shift a little, ratios barely move.</p>'
+        f'<p><b>Tokens.</b> {e(method())}. Install <code>graphsnip[accurate]</code> for exact cl100k counts; absolute numbers shift a little, ratios barely move.</p>'
         '<p><b>Not counted.</b> Savings are counted once per call. In a real session, tokens that stay in context are re-sent on every later turn, so the real saving compounds; '
-        'this dashboard does not claim that. Shell-output savings (<code>code-graf run</code>) are exact: raw vs compressed.</p>'
+        'this dashboard does not claim that. Shell-output savings (<code>graphsnip run</code>) are exact: raw vs compressed.</p>'
         '<p><b>Quality.</b> A benchmark task counts as answered only if the expected symbol appears with its source code in the output.</p>'
         '</details></section>')
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>code-graf dashboard</title><style>{CSS}</style></head><body><div class="wrap">'
-            f'<header><div class="brand"><div class="logo">cg</div><div><h1>code-graf <span class="badge{head_cls}">{e(head_label)}</span></h1>'
+            f'<title>graphsnip dashboard</title><style>{CSS}</style></head><body><div class="wrap">'
+            f'<header><div class="brand"><div class="logo">cg</div><div><h1>graphsnip <span class="badge{head_cls}">{e(head_label)}</span></h1>'
             f'<div class="sub">{e(project.root.name)} · generated {now} · v{__version__}</div></div></div><div class="chips">{"".join(chips)}</div></header>'
             f'<div class="grid4">{"".join(kpis)}</div>{"".join(sections)}'
-            f'<footer>code-graf is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; code-graf adds symbol-level retrieval, '
+            f'<footer>graphsnip is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; graphsnip adds symbol-level retrieval, '
             f'context packs, hooks, MCP, and this honest accounting.</footer></div></body></html>')
 
 
@@ -266,7 +266,7 @@ def ensure_vis(project: Project) -> Path | None:
     import tarfile
     import urllib.request
 
-    dest = project.cg_dir / "vendor" / "vis-network.min.js"
+    dest = project.gs_dir / "vendor" / "vis-network.min.js"
     if dest.exists() and dest.stat().st_size > 100_000:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -309,14 +309,14 @@ def _offline_graph(project: Project, out_dir: Path) -> bool:
 
 
 def write_dashboard(project: Project, bundle: str | None = None) -> Path:
-    project.cg_dir.mkdir(parents=True, exist_ok=True)
-    out_dir = Path(bundle).resolve() if bundle else project.cg_dir
+    project.gs_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(bundle).resolve() if bundle else project.gs_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     offline = _offline_graph(project, out_dir)
     if project.graph_html.exists() and not offline:
         import sys
 
-        sys.stderr.write("[code-graf] note: could not cache vis-network; graph.html will need internet to render.\n")
+        sys.stderr.write("[graphsnip] note: could not cache vis-network; graph.html will need internet to render.\n")
     out = out_dir / "dashboard.html"
     out.write_text(build_html(project, "graph.html"), encoding="utf-8")
     return out

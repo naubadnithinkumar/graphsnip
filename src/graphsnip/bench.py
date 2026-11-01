@@ -4,10 +4,10 @@ For each task it prices three approaches and checks the answer is actually there
 
   naive       grep the terms, read the best-matching files in full (capped)   <- realistic baseline
   graphify    Graphify's own `query` (budgeted)                              <- graph map, no source code
-  code-graf   pack / find+symbol / impact+symbol                             <- map + exact code
+  graphsnip   pack / find+symbol / impact+symbol                             <- map + exact code
 
 Quality is checked, not assumed: a task counts as answered only when the
-expected symbol shows up in the output (and, for code-graf, with its source).
+expected symbol shows up in the output (and, for graphsnip, with its source).
 """
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ import re
 import time
 from pathlib import Path
 
-from code_graf.baseline import Baseline, query_terms
-from code_graf.engine import Engine
-from code_graf.project import Project
-from code_graf.tokens import count_tokens, method
+from graphsnip.baseline import Baseline, query_terms
+from graphsnip.engine import Engine
+from graphsnip.project import Project
+from graphsnip.tokens import count_tokens, method
 
 TYPES = ("understand", "impact", "locate")
 
@@ -47,7 +47,7 @@ def default_tasks(project: Project, n: int = 8) -> list[dict]:
     seen_files: dict[str, int] = {}
     picks = []
     idx = project.label_index()
-    from code_graf.project import bare
+    from graphsnip.project import bare
 
     for row in project.top_symbols(80):
         lab = _short(str(row["label"]))
@@ -74,7 +74,7 @@ def default_tasks(project: Project, n: int = 8) -> list[dict]:
 
 
 def load_tasks(project: Project, path: str | None) -> list[dict]:
-    p = Path(path) if path else project.cg_dir / "tasks.json"
+    p = Path(path) if path else project.gs_dir / "tasks.json"
     if p.exists():
         data = json.loads(p.read_text(encoding="utf-8"))
         tasks = data["tasks"] if isinstance(data, dict) else data
@@ -87,8 +87,8 @@ def load_tasks(project: Project, path: str | None) -> list[dict]:
 
 
 def save_default_tasks(project: Project) -> Path:
-    project.cg_dir.mkdir(parents=True, exist_ok=True)
-    p = project.cg_dir / "tasks.json"
+    project.gs_dir.mkdir(parents=True, exist_ok=True)
+    p = project.gs_dir / "tasks.json"
     p.write_text(json.dumps({"_note": "Edit freely. type: understand | impact | locate. expect: symbol names that must appear in a correct answer.",
                              "tasks": default_tasks(project)}, indent=2) + "\n", encoding="utf-8")
     return p
@@ -139,23 +139,23 @@ def run_bench(root: str = ".", tasks_path: str | None = None, quiet: bool = Fals
         else:
             parts.append(e2.find(q, budget=1200))
             parts.append(e2.symbol(name))
-        cg_text = "\n".join(r.text for r in parts if r.ok)
-        cg_tokens = sum(r.returned for r in parts if r.ok)
-        has_code = "```" in cg_text
-        cg_hit = (all(x in cg_text.lower() for x in expect) if expect else bool(cg_tokens)) and has_code
+        gs_text = "\n".join(r.text for r in parts if r.ok)
+        gs_tokens = sum(r.returned for r in parts if r.ok)
+        has_code = "```" in gs_text
+        gs_hit = (all(x in gs_text.lower() for x in expect) if expect else bool(gs_tokens)) and has_code
         # second read of the same symbol in the same session
         again = e2.symbol(name)
         rows.append({
             "id": t["id"], "type": typ, "question": q, "expect": t.get("expect", []),
             "naive_tokens": naive_tokens, "naive_files": len(naive_files), "naive_hit": naive_hit,
             "graphify_tokens": gtokens, "graphify_hit": ghit, "graphify_read_tokens": gread_tokens,
-            "codegraf_tokens": cg_tokens, "codegraf_hit": cg_hit, "codegraf_has_code": has_code,
+            "graphsnip_tokens": gs_tokens, "graphsnip_hit": gs_hit, "graphsnip_has_code": has_code,
             "reread_tokens": again.returned if again.ok else None,
-            "reduction_vs_naive": round(naive_tokens / cg_tokens, 1) if cg_tokens else None,
+            "reduction_vs_naive": round(naive_tokens / gs_tokens, 1) if gs_tokens else None,
         })
-    ok = [r for r in rows if r["codegraf_tokens"]]
+    ok = [r for r in rows if r["graphsnip_tokens"]]
     tot_n = sum(r["naive_tokens"] for r in ok)
-    tot_c = sum(r["codegraf_tokens"] for r in ok)
+    tot_c = sum(r["graphsnip_tokens"] for r in ok)
     tot_g = sum(r["graphify_tokens"] for r in rows)
     tot_gr = sum(r["graphify_read_tokens"] for r in rows)
     result = {
@@ -167,21 +167,21 @@ def run_bench(root: str = ".", tasks_path: str | None = None, quiet: bool = Fals
         "corpus_tokens": corpus_tokens,
         "tasks": rows,
         "totals": {
-            "naive_tokens": tot_n, "codegraf_tokens": tot_c, "graphify_tokens": tot_g, "graphify_read_tokens": tot_gr,
+            "naive_tokens": tot_n, "graphsnip_tokens": tot_c, "graphify_tokens": tot_g, "graphify_read_tokens": tot_gr,
             "saved_vs_graphify_read_pct": round(100 * (tot_gr - tot_c) / tot_gr, 1) if tot_gr else 0.0,
             "saved_tokens": tot_n - tot_c,
             "saved_pct": round(100 * (tot_n - tot_c) / tot_n, 1) if tot_n else 0.0,
             "ratio": round(tot_n / tot_c, 1) if tot_c else 0.0,
             "vs_corpus_ratio": round(corpus_tokens / (tot_c / len(ok)), 1) if ok and tot_c else 0.0,
-            "answered": sum(1 for r in rows if r["codegraf_hit"]),
+            "answered": sum(1 for r in rows if r["graphsnip_hit"]),
             "naive_answered": sum(1 for r in rows if r["naive_hit"]),
             "graphify_answered": sum(1 for r in rows if r["graphify_hit"]),
             "tasks": len(rows),
             "seconds": round(time.time() - t0, 1),
         },
     }
-    p.cg_dir.mkdir(parents=True, exist_ok=True)
-    (p.cg_dir / "bench.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    p.gs_dir.mkdir(parents=True, exist_ok=True)
+    (p.gs_dir / "bench.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
 
 
@@ -189,20 +189,20 @@ def format_table(res: dict) -> str:
     rows = res["tasks"]
     t = res["totals"]
     w = max(8, min(44, max(len(r["question"]) for r in rows)))
-    hdr = f"{'task':<{w}}  {'grep+read':>9}  {'graphify':>8}  {'gfy+read':>8}  {'code-graf':>9}  {'saved':>6}  ok"
+    hdr = f"{'task':<{w}}  {'grep+read':>9}  {'graphify':>8}  {'gfy+read':>8}  {'graphsnip':>9}  {'saved':>6}  ok"
     out = [hdr, "-" * len(hdr)]
     for r in rows:
-        saved = f"{100 * (1 - r['codegraf_tokens'] / r['naive_tokens']):.0f}%" if r["naive_tokens"] and r["codegraf_tokens"] else "-"
+        saved = f"{100 * (1 - r['graphsnip_tokens'] / r['naive_tokens']):.0f}%" if r["naive_tokens"] and r["graphsnip_tokens"] else "-"
         out.append(f"{r['question'][:w]:<{w}}  {r['naive_tokens']:>9,}  {r['graphify_tokens']:>8,}  {r['graphify_read_tokens']:>8,}  "
-                   f"{r['codegraf_tokens']:>9,}  {saved:>6}  {'✓' if r['codegraf_hit'] else '✗'}")
+                   f"{r['graphsnip_tokens']:>9,}  {saved:>6}  {'✓' if r['graphsnip_hit'] else '✗'}")
     out.append("-" * len(hdr))
     out.append(f"{'TOTAL':<{w}}  {t['naive_tokens']:>9,}  {t['graphify_tokens']:>8,}  {t['graphify_read_tokens']:>8,}  "
-               f"{t['codegraf_tokens']:>9,}  {t['saved_pct']:>5}%  {t['answered']}/{t['tasks']}")
+               f"{t['graphsnip_tokens']:>9,}  {t['saved_pct']:>5}%  {t['answered']}/{t['tasks']}")
     out.append(f"\ngrep+read  = {res['baseline_definition']} (what an agent does with no graph)")
     out.append("graphify   = Graphify `query` alone: a map with no source code")
     out.append("gfy+read   = that map, then reading the whole files its top hits point to (3 files max)")
-    out.append("code-graf  = exact code, ranked and budgeted (pack / find+symbol / impact+symbol)")
+    out.append("graphsnip  = exact code, ranked and budgeted (pack / find+symbol / impact+symbol)")
     out.append(f"Saved column is vs grep+read; vs graphify+read it is {t['saved_vs_graphify_read_pct']}%. Tokens: {res['token_method']}.")
-    out.append(f"Answered (expected symbol + source present): code-graf {t['answered']}/{t['tasks']}, "
+    out.append(f"Answered (expected symbol + source present): graphsnip {t['answered']}/{t['tasks']}, "
                f"grep+read {t['naive_answered']}/{t['tasks']}.")
     return "\n".join(out)

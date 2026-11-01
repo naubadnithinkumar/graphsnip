@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 class Ledger:
-    def __init__(self, cg_dir: Path):
-        self.dir = Path(cg_dir)
+    def __init__(self, gs_dir: Path):
+        self.dir = Path(gs_dir)
         self.path = self.dir / "ledger.jsonl"
 
     def record(self, **fields) -> None:

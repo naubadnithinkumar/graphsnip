@@ -2,15 +2,15 @@ import json
 import subprocess
 import sys
 
-from code_graf import hooks, installer
-from code_graf.dashboard import build_html, write_dashboard
-from code_graf.project import Project
+from graphsnip import hooks, installer
+from graphsnip.dashboard import build_html, write_dashboard
+from graphsnip.project import Project
 
 
 def _project_with_cfg(repo, **cfg):
     p = Project(repo)
-    p.cg_dir.mkdir(exist_ok=True)
-    (p.cg_dir / "config.json").write_text(json.dumps(cfg))
+    p.gs_dir.mkdir(exist_ok=True)
+    (p.gs_dir / "config.json").write_text(json.dumps(cfg))
     return Project(repo)
 
 
@@ -28,7 +28,7 @@ def test_hook_strict_denies_identifier_grep_but_not_literals(repo):
     p = _project_with_cfg(repo, mode="strict")
     out = hooks.handle({"tool_name": "Grep", "tool_input": {"pattern": "validate_email"}}, p)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "cg_symbol" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "gs_symbol" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert hooks.handle({"tool_name": "Grep", "tool_input": {"pattern": "bad email"}}, p) is None
     assert hooks.handle({"tool_name": "Grep", "tool_input": {"pattern": "nope_not_a_symbol"}}, p) is None
 
@@ -46,13 +46,13 @@ def test_hook_off_and_shell_filter_is_opt_in(repo):
     assert hooks.handle({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}, p) is None
     p = _project_with_cfg(repo, mode="nudge", shell_filter=True)
     out = hooks.handle({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}, p)["hookSpecificOutput"]
-    assert "code_graf run" in out["updatedInput"]["command"] or "code-graf" in out["updatedInput"]["command"]
+    assert "graphsnip run" in out["updatedInput"]["command"] or "graphsnip" in out["updatedInput"]["command"]
     # never rewrite pipelines or chained commands
     assert hooks.handle({"tool_name": "Bash", "tool_input": {"command": "pytest -q && rm -rf x"}}, p) is None
 
 
 def test_hook_cli_fails_open_on_garbage():
-    r = subprocess.run([sys.executable, "-m", "code_graf", "hook", "pretooluse"], input="not json", capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "graphsnip", "hook", "pretooluse"], input="not json", capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout == ""
 
 
@@ -72,16 +72,16 @@ def test_install_all_is_idempotent_and_preserves_existing(tmp_path):
     snap2 = {p.relative_to(tmp_path).as_posix(): p.read_text() for p in tmp_path.rglob("*") if p.is_file()}
     assert snap == snap2  # second run changes nothing
     mcp = json.loads(snap[".mcp.json"])
-    assert "other" in mcp["mcpServers"] and "code-graf" in mcp["mcpServers"]
-    assert json.loads(snap[".vscode/mcp.json"])["servers"]["code-graf"]["type"] == "stdio"
+    assert "other" in mcp["mcpServers"] and "graphsnip" in mcp["mcpServers"]
+    assert json.loads(snap[".vscode/mcp.json"])["servers"]["graphsnip"]["type"] == "stdio"
     s = json.loads(snap[".claude/settings.json"])
     assert any("hook pretooluse" in h["command"] for g in s["hooks"]["PreToolUse"] for h in g["hooks"])
-    assert "mcp__code-graf" in s["permissions"]["allow"]
-    assert "[mcp_servers.code-graf]" in snap[".codex/config.toml"]
+    assert "mcp__graphsnip" in s["permissions"]["allow"]
+    assert "[mcp_servers.graphsnip]" in snap[".codex/config.toml"]
     assert snap["AGENTS.md"].startswith("# My rules") and installer.BEGIN in snap["AGENTS.md"]
     assert snap["AGENTS.md"].count(installer.BEGIN) == 1
-    assert "model: haiku" in snap[".claude/agents/code-graf-explorer.md"]
-    assert ".code-graf/" in snap[".gitignore"]
+    assert "model: haiku" in snap[".claude/agents/graphsnip-explorer.md"]
+    assert ".graphsnip/" in snap[".gitignore"]
 
 
 def test_uninstall_restores_user_content(tmp_path):
@@ -91,8 +91,8 @@ def test_uninstall_restores_user_content(tmp_path):
     installer.uninstall(str(tmp_path), ["claude"])
     assert (tmp_path / "CLAUDE.md").read_text().strip() == "# Mine\n\nKeep this."
     assert json.loads((tmp_path / ".mcp.json").read_text()) == {"mcpServers": {"other": {"command": "x"}}}
-    assert not (tmp_path / ".claude" / "agents" / "code-graf-explorer.md").exists()
-    assert "code-graf" not in (tmp_path / ".claude" / "settings.json").read_text()
+    assert not (tmp_path / ".claude" / "agents" / "graphsnip-explorer.md").exists()
+    assert "graphsnip" not in (tmp_path / ".claude" / "settings.json").read_text()
 
 
 def test_install_rejects_unknown_client_and_bad_json(tmp_path):
@@ -112,16 +112,16 @@ def test_mcp_server_speaks_protocol(repo):
                                                                        "clientInfo": {"name": "t", "version": "0"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "cg_symbol", "arguments": {"name": "create_user"}}},
-        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "cg_symbol", "arguments": {"name": "create_user"}}},
-        {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "cg_symbol", "arguments": {"name": "zzz_missing"}}},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "gs_symbol", "arguments": {"name": "create_user"}}},
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "gs_symbol", "arguments": {"name": "create_user"}}},
+        {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "gs_symbol", "arguments": {"name": "zzz_missing"}}},
         {"jsonrpc": "2.0", "id": 6, "method": "nope"},
     ]
-    r = subprocess.run([sys.executable, "-m", "code_graf", "serve", "--root", str(repo)],
+    r = subprocess.run([sys.executable, "-m", "graphsnip", "serve", "--root", str(repo)],
                        input="\n".join(json.dumps(m) for m in msgs) + "\n", capture_output=True, text=True, timeout=120)
     out = {d["id"]: d for d in (json.loads(x) for x in r.stdout.splitlines() if x.strip())}
-    assert out[1]["result"]["protocolVersion"] == "2025-03-26" and out[1]["result"]["serverInfo"]["name"] == "code-graf"
-    assert {t["name"] for t in out[2]["result"]["tools"]} >= {"cg_pack", "cg_find", "cg_symbol", "cg_impact", "cg_outline"}
+    assert out[1]["result"]["protocolVersion"] == "2025-03-26" and out[1]["result"]["serverInfo"]["name"] == "graphsnip"
+    assert {t["name"] for t in out[2]["result"]["tools"]} >= {"gs_pack", "gs_find", "gs_symbol", "gs_impact", "gs_outline"}
     assert "def create_user" in out[3]["result"]["content"][0]["text"]
     assert "already returned" in out[4]["result"]["content"][0]["text"]
     assert out[5]["result"]["isError"] is True
@@ -131,7 +131,7 @@ def test_mcp_server_speaks_protocol(repo):
 
 # ------------------------------------------------------------------ dashboard
 def test_dashboard_renders_and_escapes(repo):
-    from code_graf.bench import run_bench
+    from graphsnip.bench import run_bench
 
     p = Project(repo)
     (repo / "t2.json").write_text(json.dumps([{"type": "understand", "question": "how does <script>alert(1)</script> work", "expect": ["create_user"]}]))

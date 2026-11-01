@@ -18,9 +18,9 @@ import shutil
 import sys
 from pathlib import Path
 
-from code_graf import ledger as _ledger
-from code_graf.project import CODE_EXTS, Project, bare
-from code_graf.tokens import count_tokens
+from graphsnip import ledger as _ledger
+from graphsnip.project import CODE_EXTS, Project, bare
+from graphsnip.tokens import count_tokens
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _GREPS = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
@@ -39,7 +39,7 @@ def _out(kind: str, text: str, deny: bool) -> dict:
 
 
 def _log(project: Project, tool: str, action: str, detail: str) -> None:
-    _ledger.Ledger(project.cg_dir).record(kind="hook", tool=tool, action=action, detail=detail[:160], source="hook")
+    _ledger.Ledger(project.gs_dir).record(kind="hook", tool=tool, action=action, detail=detail[:160], source="hook")
 
 
 def _symbol_hint(project: Project, pattern: str) -> str | None:
@@ -56,7 +56,7 @@ def _symbol_hint(project: Project, pattern: str) -> str | None:
         parts.append(f'{project.display(nid)} ({d.get("source_file")}:{d.get("source_location")})')
     first = project.display(ids[0]).replace("()", "")
     return (f'"{pat}" is a symbol in the code graph: ' + "; ".join(parts) +
-            f'. Use cg_symbol("{first}") for its code and callers, or cg_impact("{first}") for usages, instead of grep.')
+            f'. Use gs_symbol("{first}") for its code and callers, or gs_impact("{first}") for usages, instead of grep.')
 
 
 def _read_hint(project: Project, ti: dict, strict: bool) -> tuple[str, str] | None:
@@ -86,9 +86,9 @@ def _read_hint(project: Project, ti: dict, strict: bool) -> tuple[str, str] | No
     cap = 40 if strict else 18
     lines = [f"L{ln} {lab}{' [class]' if c else ''}" for ln, lab, c in rows[:cap]]
     if len(rows) > cap:
-        lines.append(f"… +{len(rows) - cap} more (cg_outline('{rel}') lists all)")
+        lines.append(f"… +{len(rows) - cap} more (gs_outline('{rel}') lists all)")
     msg = (f"{rel} is ~{toks:,} tokens. Its symbols per the code graph:\n" + "\n".join(lines) +
-           f"\nRead only what you need: cg_symbol(name) for one definition, or Read with offset/limit around a line.")
+           f"\nRead only what you need: gs_symbol(name) for one definition, or Read with offset/limit around a line.")
     return msg, rel
 
 
@@ -111,8 +111,8 @@ def _bash_pattern(cmd: str) -> str | None:
 
 
 def _wrap_command(cmd: str) -> str:
-    exe = shutil.which("code-graf")
-    base = shlex.quote(exe) if exe else f"{shlex.quote(sys.executable)} -m code_graf"
+    exe = shutil.which("graphsnip")
+    base = shlex.quote(exe) if exe else f"{shlex.quote(sys.executable)} -m graphsnip"
     return f"{base} run -- bash -c {shlex.quote(cmd)}"
 
 
@@ -148,12 +148,12 @@ def handle(payload: dict, project: Project) -> dict | None:
             if hint:
                 _log(project, "Bash", "deny" if strict else "nudge", cmd)
                 return _out("grep", hint, deny=strict)
-        if cfg.get("shell_filter") and _NOISY.match(cmd) and not _UNSAFE_SHELL.search(cmd) and "code-graf" not in cmd:
+        if cfg.get("shell_filter") and _NOISY.match(cmd) and not _UNSAFE_SHELL.search(cmd) and "graphsnip" not in cmd:
             _log(project, "Bash", "compress", cmd)
             new = dict(ti)
             new["command"] = _wrap_command(cmd)
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                           "permissionDecisionReason": "code-graf: compressing noisy command output",
+                                           "permissionDecisionReason": "graphsnip: compressing noisy command output",
                                            "updatedInput": new}}
     return None
 
@@ -174,5 +174,5 @@ def main_stdin(root: str = ".") -> int:
         if res:
             sys.stdout.write(json.dumps(res))
     except Exception as e:  # fail open
-        sys.stderr.write(f"[code-graf hook] ignored error: {type(e).__name__}: {e}\n")
+        sys.stderr.write(f"[graphsnip hook] ignored error: {type(e).__name__}: {e}\n")
     return 0

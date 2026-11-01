@@ -1,7 +1,7 @@
 """The honest baseline.
 
 Graphify's own benchmark compares a query against reading the *entire corpus*,
-which no agent actually does. code-graf instead prices what an agent without
+which no agent actually does. graphsnip instead prices what an agent without
 the graph would realistically do for the same question: grep for the terms,
 then read the best-matching files in full (capped at `max_files`).
 
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import re
 
-from code_graf.project import MAX_FILE_BYTES, Project
-from code_graf.tokens import count_tokens
+from graphsnip.project import MAX_FILE_BYTES, Project
+from graphsnip.tokens import count_tokens
 
 _STOP = set("""
 a an and are as at be by can do does for from how i in is it its of on or that the this to was what when where which who why with

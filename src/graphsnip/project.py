@@ -17,7 +17,7 @@ CODE_EXTS = {
 }
 IGNORE_DIRS = {
     ".git", "node_modules", "venv", ".venv", "env", "__pycache__", "dist", "build",
-    "graphify-out", ".code-graf", ".next", ".nuxt", "target", "vendor", ".tox",
+    "graphify-out", ".graphsnip", ".next", ".nuxt", "target", "vendor", ".tox",
     ".mypy_cache", ".pytest_cache", ".idea", ".vscode", "coverage", ".gradle", "Pods",
 }
 MAX_FILE_BYTES = 400_000
@@ -40,7 +40,7 @@ class Project:
         self.graph_json = self.graph_dir / "graph.json"
         self.graph_html = self.graph_dir / "graph.html"
         self.report_md = self.graph_dir / "GRAPH_REPORT.md"
-        self.cg_dir = self.root / ".code-graf"
+        self.gs_dir = self.root / ".graphsnip"
         self._graph = None
         self._graph_mtime = 0.0
         self._files: list[Path] | None = None
@@ -56,24 +56,24 @@ class Project:
             "shell_filter": False,           # hook: opt-in rewrite of noisy shell commands
             "price_per_mtok": 3.0,           # USD per million input tokens, for the cost estimate
         }
-        p = self.cg_dir / "config.json"
+        p = self.gs_dir / "config.json"
         try:
             if p.exists():
                 cfg.update(json.loads(p.read_text(encoding="utf-8")))
         except Exception:
             pass
-        if os.environ.get("CODEGRAF_MODE"):
-            cfg["mode"] = os.environ["CODEGRAF_MODE"]
-        if os.environ.get("CODEGRAF_PRICE_PER_MTOK"):
+        if os.environ.get("GRAPHSNIP_MODE"):
+            cfg["mode"] = os.environ["GRAPHSNIP_MODE"]
+        if os.environ.get("GRAPHSNIP_PRICE_PER_MTOK"):
             try:
-                cfg["price_per_mtok"] = float(os.environ["CODEGRAF_PRICE_PER_MTOK"])
+                cfg["price_per_mtok"] = float(os.environ["GRAPHSNIP_PRICE_PER_MTOK"])
             except ValueError:
                 pass
         return cfg
 
     def write_default_config(self) -> Path:
-        self.cg_dir.mkdir(parents=True, exist_ok=True)
-        p = self.cg_dir / "config.json"
+        self.gs_dir.mkdir(parents=True, exist_ok=True)
+        p = self.gs_dir / "config.json"
         if not p.exists():
             default = {
                 "mode": "nudge",
@@ -159,7 +159,7 @@ class Project:
         r2 = self._run_graphify("cluster-only", str(self.root), "--no-label")
         if r2.returncode != 0:
             # graph.json exists; html/report generation is best-effort
-            sys.stderr.write(f"[code-graf] cluster-only warning: {(r2.stderr or r2.stdout)[-400:]}\n")
+            sys.stderr.write(f"[graphsnip] cluster-only warning: {(r2.stderr or r2.stdout)[-400:]}\n")
         self._graph = None
         self._labels = None
         self._last_stale_check = 0.0
@@ -197,11 +197,11 @@ class Project:
             try:
                 self.build()
             except GraphError as e:
-                sys.stderr.write(f"[code-graf] refresh failed, using existing graph: {e}\n")
+                sys.stderr.write(f"[graphsnip] refresh failed, using existing graph: {e}\n")
 
     def graph(self):
         if not self.has_graph():
-            raise GraphError("No graph yet. Run `code-graf build` (or `code-graf init`).")
+            raise GraphError("No graph yet. Run `graphsnip build` (or `graphsnip init`).")
         m = self.graph_json.stat().st_mtime
         if self._graph is None or m != self._graph_mtime:
             from graphify.serve import _read_graph  # Graphify's own loader (size cap, edge direction)

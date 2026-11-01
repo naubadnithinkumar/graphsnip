@@ -1,8 +1,8 @@
 """Client installers: Claude Code, GitHub Copilot (VS Code / CLI), Codex.
 
 Everything is idempotent and reversible:
-- text files get a marked, replaceable block (<!-- code-graf:begin --> ... <!-- code-graf:end -->)
-- JSON files are merged, touching only the `code-graf` entry / our own hook
+- text files get a marked, replaceable block (<!-- graphsnip:begin --> ... <!-- graphsnip:end -->)
+- JSON files are merged, touching only the `graphsnip` entry / our own hook
 - `--dry-run` prints what would change and writes nothing
 """
 from __future__ import annotations
@@ -13,41 +13,41 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from code_graf.project import Project
+from graphsnip.project import Project
 
-BEGIN = "<!-- code-graf:begin -->"
-END = "<!-- code-graf:end -->"
-TOML_BEGIN = "# code-graf:begin"
-TOML_END = "# code-graf:end"
-HOOK_MARK = "code-graf hook"
-SERVER = "code-graf"
+BEGIN = "<!-- graphsnip:begin -->"
+END = "<!-- graphsnip:end -->"
+TOML_BEGIN = "# graphsnip:begin"
+TOML_END = "# graphsnip:end"
+HOOK_MARK = "graphsnip hook"
+SERVER = "graphsnip"
 CLIENTS = ("claude", "copilot", "codex")
 
 GUIDE = f"""{BEGIN}
-## Code navigation (code-graf)
+## Code navigation (graphsnip)
 
-This repo is indexed as a code knowledge graph (Graphify). Use the `code-graf` MCP tools before grep or whole-file reads:
+This repo is indexed as a code knowledge graph (Graphify). Use the `graphsnip` MCP tools before grep or whole-file reads:
 
-1. `cg_pack(task)` first for "how does X work" or before a change. It returns the exact relevant code, ranked and token-budgeted.
-2. `cg_find(question)` to locate things; `cg_outline(path)` before opening a big file.
-3. `cg_symbol(name)` to read one function/class instead of the whole file.
-4. `cg_impact(name)` before changing a signature or behaviour.
+1. `gs_pack(task)` first for "how does X work" or before a change. It returns the exact relevant code, ranked and token-budgeted.
+2. `gs_find(question)` to locate things; `gs_outline(path)` before opening a big file.
+3. `gs_symbol(name)` to read one function/class instead of the whole file.
+4. `gs_impact(name)` before changing a signature or behaviour.
 5. Fall back to grep/Read for literal strings, config, docs, or when the graph has no match.
 
-Prefer `Read` with `offset`/`limit` over whole-file reads. If you need long test/build output, run it through `code-graf run -- <command>` to compress it.
-Interactive map: `graphify-out/graph.html`. Savings dashboard: `.code-graf/dashboard.html` (`code-graf report`).
+Prefer `Read` with `offset`/`limit` over whole-file reads. If you need long test/build output, run it through `graphsnip run -- <command>` to compress it.
+Interactive map: `graphify-out/graph.html`. Savings dashboard: `.graphsnip/dashboard.html` (`graphsnip report`).
 {END}
 """
 
 EXPLORER_AGENT = """---
-name: code-graf-explorer
-description: Read-only code exploration over the code-graf knowledge graph. Use for "where is X", "how does Y work", or "what depends on Z" so the main context only receives a short answer.
-tools: mcp__code-graf__cg_pack, mcp__code-graf__cg_find, mcp__code-graf__cg_symbol, mcp__code-graf__cg_impact, mcp__code-graf__cg_outline, Read
+name: graphsnip-explorer
+description: Read-only code exploration over the graphsnip knowledge graph. Use for "where is X", "how does Y work", or "what depends on Z" so the main context only receives a short answer.
+tools: mcp__graphsnip__cg_pack, mcp__graphsnip__cg_find, mcp__graphsnip__cg_symbol, mcp__graphsnip__cg_impact, mcp__graphsnip__cg_outline, Read
 model: haiku
 ---
-You explore a codebase through the code-graf tools and report back briefly.
+You explore a codebase through the graphsnip tools and report back briefly.
 
-1. Start with `cg_pack` (understanding) or `cg_find` (locating). Use `cg_symbol` for single definitions and `cg_impact` for dependents.
+1. Start with `gs_pack` (understanding) or `gs_find` (locating). Use `gs_symbol` for single definitions and `gs_impact` for dependents.
 2. Use Read only with offset/limit, and only when the graph tools cannot answer.
 3. Answer in at most 250 words: the direct answer first, then the key `file:line` references. Do not paste code unless asked; point to it.
 4. If the graph has no match, say so and suggest the grep pattern to try.
@@ -62,23 +62,23 @@ class Plan:
         self.actions.append((path, desc, fn))
 
 
-_PORTABLE = False  # True: write bare `code-graf` (commit-friendly) instead of this machine's absolute path
+_PORTABLE = False  # True: write bare `graphsnip` (commit-friendly) instead of this machine's absolute path
 
 
 def _command(project_root: Path | None) -> tuple[str, list[str]]:
-    exe = shutil.which("code-graf")
+    exe = shutil.which("graphsnip")
     if _PORTABLE:
-        return "code-graf", ["serve", "--root", "."]
+        return "graphsnip", ["serve", "--root", "."]
     if exe:
         return exe, ["serve", "--root", "."]
-    return sys.executable, ["-m", "code_graf", "serve", "--root", "."]
+    return sys.executable, ["-m", "graphsnip", "serve", "--root", "."]
 
 
 def _hook_command() -> str:
-    exe = shutil.which("code-graf")
+    exe = shutil.which("graphsnip")
     if _PORTABLE:
-        return "code-graf hook pretooluse"
-    return f"{exe} hook pretooluse" if exe else f"{sys.executable} -m code_graf hook pretooluse"
+        return "graphsnip hook pretooluse"
+    return f"{exe} hook pretooluse" if exe else f"{sys.executable} -m graphsnip hook pretooluse"
 
 
 # ---------------------------------------------------------------- text helpers
@@ -150,11 +150,11 @@ def _claude(root: Path, plan: Plan, allow_tools: bool, strict: bool) -> None:
 
     plan.add(root / ".mcp.json", f"register MCP server '{SERVER}'", mcp)
     plan.add(root / ".claude" / "settings.json",
-             "add PreToolUse hook (Read|Grep|Bash)" + (" + allow code-graf tools" if allow_tools else ""), settings)
-    plan.add(root / "CLAUDE.md", "add code-graf guidance block", lambda: _upsert_block(root / "CLAUDE.md", GUIDE, BEGIN, END))
-    plan.add(root / ".claude" / "agents" / "code-graf-explorer.md", "add cheap read-only explorer subagent (Haiku)",
+             "add PreToolUse hook (Read|Grep|Bash)" + (" + allow graphsnip tools" if allow_tools else ""), settings)
+    plan.add(root / "CLAUDE.md", "add graphsnip guidance block", lambda: _upsert_block(root / "CLAUDE.md", GUIDE, BEGIN, END))
+    plan.add(root / ".claude" / "agents" / "graphsnip-explorer.md", "add cheap read-only explorer subagent (Haiku)",
              lambda: (root / ".claude" / "agents").mkdir(parents=True, exist_ok=True) or
-             (root / ".claude" / "agents" / "code-graf-explorer.md").write_text(EXPLORER_AGENT, encoding="utf-8"))
+             (root / ".claude" / "agents" / "graphsnip-explorer.md").write_text(EXPLORER_AGENT, encoding="utf-8"))
 
 
 def _copilot(root: Path, plan: Plan) -> None:
@@ -167,7 +167,7 @@ def _copilot(root: Path, plan: Plan) -> None:
         _save_json(p, d)
 
     plan.add(root / ".vscode" / "mcp.json", f"register MCP server '{SERVER}' for VS Code Copilot", mcp)
-    plan.add(root / ".github" / "copilot-instructions.md", "add code-graf guidance block",
+    plan.add(root / ".github" / "copilot-instructions.md", "add graphsnip guidance block",
              lambda: _upsert_block(root / ".github" / "copilot-instructions.md", GUIDE, BEGIN, END))
 
 
@@ -180,12 +180,12 @@ def _codex(root: Path, plan: Plan, scope: str) -> None:
     cmd, args = _command(root)
     if scope == "user":
         cfg = Path.home() / ".codex" / "config.toml"
-        args = ["serve", "--root", str(root)] if cmd.endswith("code-graf") else ["-m", "code_graf", "serve", "--root", str(root)]
+        args = ["serve", "--root", str(root)] if cmd.endswith("graphsnip") else ["-m", "graphsnip", "serve", "--root", str(root)]
     else:
         cfg = root / ".codex" / "config.toml"
     plan.add(cfg, f"register MCP server '{SERVER}' ({scope} config)",
              lambda: _upsert_block(cfg, _toml_block(cmd, args), TOML_BEGIN, TOML_END))
-    plan.add(root / "AGENTS.md", "add code-graf guidance block",
+    plan.add(root / "AGENTS.md", "add graphsnip guidance block",
              lambda: _upsert_block(root / "AGENTS.md", GUIDE, BEGIN, END))
 
 
@@ -193,10 +193,10 @@ def _gitignore(root: Path, plan: Plan) -> None:
     def fn():
         p = root / ".gitignore"
         cur = p.read_text(encoding="utf-8") if p.exists() else ""
-        if ".code-graf/" not in cur.split():
-            p.write_text(cur.rstrip("\n") + ("\n" if cur else "") + "# code-graf local data (ledger, dashboard)\n.code-graf/\n", encoding="utf-8")
+        if ".graphsnip/" not in cur.split():
+            p.write_text(cur.rstrip("\n") + ("\n" if cur else "") + "# graphsnip local data (ledger, dashboard)\n.graphsnip/\n", encoding="utf-8")
 
-    plan.add(root / ".gitignore", "ignore .code-graf/ (ledger + dashboard are local)", fn)
+    plan.add(root / ".gitignore", "ignore .graphsnip/ (ledger + dashboard are local)", fn)
 
 
 def install(root: str, clients: list[str], dry_run: bool = False, allow_tools: bool = False,
@@ -233,7 +233,7 @@ def install(root: str, clients: list[str], dry_run: bool = False, allow_tools: b
         d = json.loads(cfgp.read_text(encoding="utf-8"))
         d["mode"] = "strict"
         cfgp.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
-        lines.append("set hook mode to strict in .code-graf/config.json")
+        lines.append("set hook mode to strict in .graphsnip/config.json")
     elif not dry_run:
         project.write_default_config()
     return lines
@@ -269,7 +269,7 @@ def uninstall(root: str, clients: list[str], codex_scope: str = "project") -> li
             _save_json(p, d)
         if _remove_block(r / "CLAUDE.md", BEGIN, END):
             out.append("removed block from CLAUDE.md")
-        a = r / ".claude" / "agents" / "code-graf-explorer.md"
+        a = r / ".claude" / "agents" / "graphsnip-explorer.md"
         if a.exists():
             a.unlink()
             out.append("removed explorer subagent")

@@ -219,7 +219,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# code-graf / graphify output while developing
-/.code-graf/
+# graphsnip / graphify output while developing
+/.graphsnip/
 /graphify-out/
 node_modules/

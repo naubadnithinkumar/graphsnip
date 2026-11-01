@@ -8,11 +8,11 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from code_graf import ledger as _ledger
-from code_graf.baseline import Baseline, query_terms
-from code_graf.project import CODE_EXTS, GraphError, Project, parse_line
-from code_graf.slicer import shorten_docstring, signature, slice_symbol
-from code_graf.tokens import count_tokens
+from graphsnip import ledger as _ledger
+from graphsnip.baseline import Baseline, query_terms
+from graphsnip.project import CODE_EXTS, GraphError, Project, parse_line
+from graphsnip.slicer import shorten_docstring, signature, slice_symbol
+from graphsnip.tokens import count_tokens
 
 _FENCE = {".py": "python", ".pyi": "python", ".js": "javascript", ".jsx": "jsx", ".mjs": "javascript",
           ".ts": "typescript", ".tsx": "tsx", ".go": "go", ".rs": "rust", ".java": "java", ".c": "c",
@@ -42,7 +42,7 @@ class Result:
 class Engine:
     def __init__(self, root=".", session: str | None = None, source: str = "cli", auto_refresh: bool = True):
         self.p = Project(root)
-        self.ledger = _ledger.Ledger(self.p.cg_dir)
+        self.ledger = _ledger.Ledger(self.p.gs_dir)
         self.base = Baseline(self.p)
         self.session = session or uuid.uuid4().hex[:8]
         self.source = source
@@ -90,7 +90,7 @@ class Engine:
             return self._fail(f"find failed: {type(e).__name__}: {e}")
         if text.startswith("No matching nodes"):
             return self._fail(text + " Try other keywords, or fall back to grep.")
-        text = text.rstrip() + "\n\n→ cg_symbol(name) returns exact code; cg_pack(task) returns a ready code bundle."
+        text = text.rstrip() + "\n\n→ gs_symbol(name) returns exact code; gs_pack(task) returns a ready code bundle."
         base, files = self.base.grep_read(query_terms(question))
         return self._finish("find", question, text, base, files)
 
@@ -387,7 +387,7 @@ class Engine:
         if support:
             parts += ["## Supporting code", *support]
         if sigs:
-            parts += ["## Signatures only (call cg_symbol for full code)", *sigs]
+            parts += ["## Signatures only (call gs_symbol for full code)", *sigs]
         if related:
             parts += ["## Also related (names only)", *related]
         text = "\n\n".join(parts)
@@ -437,7 +437,7 @@ class Engine:
             lines.append(f"L{ln:<5} {lab}{' [class]' if kind == 'class' else ''}")
         if len(rows) > limit:
             lines.append(f"… +{len(rows) - limit} more")
-        lines.append("→ cg_symbol(name) for the code, or Read with offset/limit around a line.")
+        lines.append("→ gs_symbol(name) for the code, or Read with offset/limit around a line.")
         return self._finish("outline", path, "\n".join(lines), self.base.file_tokens(rel), [rel])
 
     # ------------------------------------------------------------ savings
@@ -446,7 +446,7 @@ class Engine:
         s = _ledger.summarize(recs, self.p.config().get("price_per_mtok", 3.0), sources={"agent", "cli", "shell"})
         if not s["calls"]:
             return self._fail("No calls recorded yet.")
-        lines = [f"code-graf savings: {s['calls']} calls · returned {s['returned']:,} tokens vs {s['baseline']:,} "
+        lines = [f"graphsnip savings: {s['calls']} calls · returned {s['returned']:,} tokens vs {s['baseline']:,} "
                  f"for grep+read (baseline) → saved {s['saved']:,} tokens ({s['pct']}%), ≈ ${s['usd_saved']}."]
         for tool, t in sorted(s["by_tool"].items(), key=lambda kv: -(kv[1]["baseline"] - kv[1]["returned"])):
             lines.append(f"  {tool:<8} {t['calls']:>3} calls · {t['returned']:>7,} vs {t['baseline']:>8,} tokens")

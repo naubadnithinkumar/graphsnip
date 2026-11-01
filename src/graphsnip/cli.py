@@ -1,4 +1,4 @@
-"""code-graf command line."""
+"""graphsnip command line."""
 from __future__ import annotations
 
 import argparse
@@ -8,10 +8,10 @@ import shutil
 import sys
 import webbrowser
 
-from code_graf import __version__
-from code_graf import ledger as _ledger
-from code_graf.engine import Engine, Result
-from code_graf.project import GraphError, Project
+from graphsnip import __version__
+from graphsnip import ledger as _ledger
+from graphsnip.engine import Engine, Result
+from graphsnip.project import GraphError, Project
 
 
 def _common() -> argparse.ArgumentParser:
@@ -25,7 +25,7 @@ def _emit(r: Result, quiet: bool = False) -> int:
     if r.ok and not quiet:
         pct = f"{100 * (1 - r.returned / r.baseline):.0f}%" if r.baseline else "n/a"
         note = " (duplicate, suppressed)" if r.deduped else ""
-        sys.stderr.write(f"\n[code-graf] ~{r.returned:,} tokens returned vs ~{r.baseline:,} for grep+read → saved {pct}{note}\n")
+        sys.stderr.write(f"\n[graphsnip] ~{r.returned:,} tokens returned vs ~{r.baseline:,} for grep+read → saved {pct}{note}\n")
     return 0 if r.ok else 1
 
 
@@ -42,12 +42,12 @@ def cmd_build(a) -> int:
 def cmd_status(a) -> int:
     p = Project(a.root)
     if not p.has_graph():
-        print("No graph yet. Run `code-graf build` or `code-graf init`.")
+        print("No graph yet. Run `graphsnip build` or `graphsnip init`.")
         return 1
     s = p.graph_stats()
     print(f"Project: {p.root}")
     print(f"Graph:   {s['nodes']:,} nodes · {s['edges']:,} edges · {s['communities']:,} communities · {s['symbols']:,} code symbols")
-    print(f"Stale:   {'yes, run `code-graf build` (the server refreshes automatically)' if p.is_stale(0) else 'no'}")
+    print(f"Stale:   {'yes, run `graphsnip build` (the server refreshes automatically)' if p.is_stale(0) else 'no'}")
     print(f"Mode:    {p.config()['mode']}")
     return 0
 
@@ -74,7 +74,7 @@ def cmd_outline(a) -> int:
 
 def cmd_stats(a) -> int:
     p = Project(a.root)
-    recs = _ledger.Ledger(p.cg_dir).read()
+    recs = _ledger.Ledger(p.gs_dir).read()
     price = float(p.config().get("price_per_mtok", 3.0))
     if a.json:
         print(json.dumps({"live": _ledger.summarize(recs, price, {"agent", "cli", "shell"}),
@@ -96,11 +96,11 @@ def cmd_stats(a) -> int:
 
 
 def cmd_report(a) -> int:
-    from code_graf.dashboard import write_dashboard
+    from graphsnip.dashboard import write_dashboard
 
     p = Project(a.root)
     if not p.has_graph():
-        print("No graph yet. Run `code-graf build` first.")
+        print("No graph yet. Run `graphsnip build` first.")
         return 1
     out = write_dashboard(p, bundle=a.bundle)
     print(f"Dashboard written: {out}")
@@ -112,11 +112,11 @@ def cmd_report(a) -> int:
 
 
 def cmd_bench(a) -> int:
-    from code_graf.bench import format_table, run_bench, save_default_tasks
+    from graphsnip.bench import format_table, run_bench, save_default_tasks
 
     p = Project(a.root)
     p.ensure_graph(True)
-    if a.init_tasks or (not (p.cg_dir / "tasks.json").exists() and not a.tasks):
+    if a.init_tasks or (not (p.gs_dir / "tasks.json").exists() and not a.tasks):
         path = save_default_tasks(p)
         print(f"Wrote starter tasks to {path} (edit them to use your own questions).\n")
     res = run_bench(a.root, a.tasks)
@@ -128,15 +128,15 @@ def cmd_bench(a) -> int:
 
 
 def cmd_demo(a) -> int:
-    from code_graf.bench import format_table, run_bench, save_default_tasks
-    from code_graf.dashboard import write_dashboard
+    from graphsnip.bench import format_table, run_bench, save_default_tasks
+    from graphsnip.dashboard import write_dashboard
 
     p = Project(a.root)
     if not p.has_graph():
         print("Building the Graphify graph (code only, local, no LLM)…")
         s = p.build()
         print(f"  {s['nodes']:,} nodes, {s['edges']:,} edges in {s['seconds']}s\n")
-    if not (p.cg_dir / "tasks.json").exists():
+    if not (p.gs_dir / "tasks.json").exists():
         save_default_tasks(p)
     print("Running benchmark…\n")
     res = run_bench(a.root)
@@ -149,20 +149,20 @@ def cmd_demo(a) -> int:
 
 
 def cmd_serve(a) -> int:
-    from code_graf.mcp_server import serve
+    from graphsnip.mcp_server import serve
 
     serve(a.root)
     return 0
 
 
 def cmd_hook(a) -> int:
-    from code_graf.hooks import main_stdin
+    from graphsnip.hooks import main_stdin
 
     return main_stdin(a.root)
 
 
 def cmd_run(a) -> int:
-    from code_graf.shellfilter import run
+    from graphsnip.shellfilter import run
 
     argv = list(a.cmd)
     if argv and argv[0] == "--":
@@ -175,7 +175,7 @@ def _clients(s: str) -> list[str]:
 
 
 def cmd_install(a) -> int:
-    from code_graf.installer import install
+    from graphsnip.installer import install
 
     try:
         for ln in install(a.root, _clients(a.clients), dry_run=a.dry_run, allow_tools=a.allow_tools,
@@ -185,12 +185,12 @@ def cmd_install(a) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     if not a.dry_run:
-        print("\nRestart your agent/IDE so it picks up the MCP server. `code-graf doctor` checks the setup.")
+        print("\nRestart your agent/IDE so it picks up the MCP server. `graphsnip doctor` checks the setup.")
     return 0
 
 
 def cmd_uninstall(a) -> int:
-    from code_graf.installer import uninstall
+    from graphsnip.installer import uninstall
 
     for ln in uninstall(a.root, _clients(a.clients), a.codex_scope):
         print(ln)
@@ -198,9 +198,9 @@ def cmd_uninstall(a) -> int:
 
 
 def cmd_init(a) -> int:
-    from code_graf.bench import format_table, run_bench, save_default_tasks
-    from code_graf.dashboard import write_dashboard
-    from code_graf.installer import install
+    from graphsnip.bench import format_table, run_bench, save_default_tasks
+    from graphsnip.dashboard import write_dashboard
+    from graphsnip.installer import install
 
     p = Project(a.root)
     if a.dry_run:
@@ -221,18 +221,18 @@ def cmd_init(a) -> int:
         return 0
     if not a.no_bench:
         print("3/4 Benchmarking on this repo…")
-        save_default_tasks(p) if not (p.cg_dir / "tasks.json").exists() else None
+        save_default_tasks(p) if not (p.gs_dir / "tasks.json").exists() else None
         res = run_bench(a.root)
         print("\n" + format_table(res) + "\n")
     print("4/4 Writing the dashboard…")
     out = write_dashboard(p)
     print(f"    {out}")
-    print("\nDone. Restart your agent/IDE, then ask it a code question. `code-graf report --open` shows the savings.")
+    print("\nDone. Restart your agent/IDE, then ask it a code question. `graphsnip report --open` shows the savings.")
     return 0
 
 
 def cmd_doctor(a) -> int:
-    from code_graf.installer import CLIENTS, HOOK_MARK
+    from graphsnip.installer import CLIENTS, HOOK_MARK
 
     p = Project(a.root)
     ok = True
@@ -253,22 +253,22 @@ def cmd_doctor(a) -> int:
         line(True, "tree-sitter available (exact symbol slicing)")
     except Exception:
         line(False, "tree-sitter missing; slicing falls back to heuristics", "pip install graphifyy")
-    exe = shutil.which("code-graf")
-    line(bool(exe), f"`code-graf` on PATH ({exe})" if exe else "`code-graf` not on PATH (configs will use `python -m code_graf`)", "pipx install code-graf")
-    line(p.has_graph(), f"graph present ({p.graph_json})" if p.has_graph() else "no graph yet", "code-graf build")
+    exe = shutil.which("graphsnip")
+    line(bool(exe), f"`graphsnip` on PATH ({exe})" if exe else "`graphsnip` not on PATH (configs will use `python -m graphsnip`)", "pipx install graphsnip")
+    line(p.has_graph(), f"graph present ({p.graph_json})" if p.has_graph() else "no graph yet", "graphsnip build")
     if p.has_graph():
-        line(not p.is_stale(0), "graph is up to date" if not p.is_stale(0) else "graph is older than some source files", "code-graf build (the server also refreshes itself)")
+        line(not p.is_stale(0), "graph is up to date" if not p.is_stale(0) else "graph is older than some source files", "graphsnip build (the server also refreshes itself)")
         s = p.graph_stats()
         line(s["symbols"] > 0, f"{s['symbols']:,} code symbols indexed")
     mcp_claude = (p.root / ".mcp.json")
     st = p.root / ".claude" / "settings.json"
     found = {
-        "claude": mcp_claude.exists() and "code-graf" in mcp_claude.read_text(encoding="utf-8", errors="ignore"),
-        "copilot": (p.root / ".vscode" / "mcp.json").exists() and "code-graf" in (p.root / ".vscode" / "mcp.json").read_text(encoding="utf-8", errors="ignore"),
-        "codex": (p.root / ".codex" / "config.toml").exists() and "code-graf" in (p.root / ".codex" / "config.toml").read_text(encoding="utf-8", errors="ignore"),
+        "claude": mcp_claude.exists() and "graphsnip" in mcp_claude.read_text(encoding="utf-8", errors="ignore"),
+        "copilot": (p.root / ".vscode" / "mcp.json").exists() and "graphsnip" in (p.root / ".vscode" / "mcp.json").read_text(encoding="utf-8", errors="ignore"),
+        "codex": (p.root / ".codex" / "config.toml").exists() and "graphsnip" in (p.root / ".codex" / "config.toml").read_text(encoding="utf-8", errors="ignore"),
     }
     for c in CLIENTS:
-        print(f"{'✓' if found[c] else '·'} {c}: {'MCP server registered' if found[c] else 'not installed here (code-graf install --clients ' + c + ')'}")
+        print(f"{'✓' if found[c] else '·'} {c}: {'MCP server registered' if found[c] else 'not installed here (graphsnip install --clients ' + c + ')'}")
     hook_on = st.exists() and HOOK_MARK in st.read_text(encoding="utf-8", errors="ignore")
     print(f"{'✓' if hook_on else '·'} claude hook: {'installed' if hook_on else 'not installed'}  (mode: {p.config()['mode']})")
     print("\nAll good." if ok else "\nSome checks failed; see arrows above.")
@@ -277,8 +277,8 @@ def cmd_doctor(a) -> int:
 
 def main(argv=None) -> int:
     common = _common()
-    ap = argparse.ArgumentParser(prog="code-graf", description="Token-saving layer on top of Graphify.")
-    ap.add_argument("--version", action="version", version=f"code-graf {__version__}")
+    ap = argparse.ArgumentParser(prog="graphsnip", description="Token-saving layer on top of Graphify.")
+    ap.add_argument("--version", action="version", version=f"graphsnip {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
     def add(name, fn, help_, **kw):
@@ -289,9 +289,9 @@ def main(argv=None) -> int:
     sp = add("init", cmd_init, "build graph + install integrations + benchmark + dashboard")
     sp.add_argument("--clients", default="all", help="claude,copilot,codex or all (default: all)")
     sp.add_argument("--dry-run", action="store_true")
-    sp.add_argument("--allow-tools", action="store_true", help="Claude Code: pre-approve the read-only code-graf tools")
+    sp.add_argument("--allow-tools", action="store_true", help="Claude Code: pre-approve the read-only graphsnip tools")
     sp.add_argument("--strict", action="store_true", help="hooks deny redirectable calls instead of nudging")
-    sp.add_argument("--portable", action="store_true", help="write bare `code-graf` into configs (safe to commit) instead of this machine's path")
+    sp.add_argument("--portable", action="store_true", help="write bare `graphsnip` into configs (safe to commit) instead of this machine's path")
     sp.add_argument("--codex-scope", choices=["project", "user"], default="project")
     sp.add_argument("--no-build", action="store_true")
     sp.add_argument("--no-bench", action="store_true")
@@ -325,8 +325,8 @@ def main(argv=None) -> int:
     sp = add("report", cmd_report, "write the HTML dashboard")
     sp.add_argument("--open", action="store_true")
     sp.add_argument("--bundle", metavar="DIR", help="write a self-contained folder (dashboard + graph.html) for sharing")
-    sp = add("bench", cmd_bench, "offline benchmark: grep+read vs Graphify vs code-graf")
-    sp.add_argument("--tasks", help="tasks JSON (default .code-graf/tasks.json, auto-generated)")
+    sp = add("bench", cmd_bench, "offline benchmark: grep+read vs Graphify vs graphsnip")
+    sp.add_argument("--tasks", help="tasks JSON (default .graphsnip/tasks.json, auto-generated)")
     sp.add_argument("--init-tasks", action="store_true", help="(re)write starter tasks")
     sp.add_argument("--json", action="store_true")
     sp = add("demo", cmd_demo, "one command for a live demo: graph + benchmark + dashboard")
