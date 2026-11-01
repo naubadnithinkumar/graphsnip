@@ -68,6 +68,7 @@ _ACTIONS = """Pick the first row that fits the request:
 | anything else (a question or a task) | call `gs_pack` with the request as the task, then answer from the returned code |
 
 Rules:
+- Start from the graph: call `gs_pack` (or the matching graphsnip tool) before any built-in search, grep or file read, even when the request is vague. Use your own words to rephrase the request if the first result is thin, and try `gs_find` before falling back.
 - Answer from the returned code and `file:line` references. Read a file directly only if the graph has no match or you need a literal string, config or docs.
 - If the graphsnip tools are missing or fail, say once: run `graphsnip doctor` in the repo. Then carry on with your normal tools (search, read files, run commands) and still complete the request; never stop because graphsnip is unavailable.
 - If the request is an action rather than a code question (run tests, coverage, builds, git), just do it with your normal tools; use the graph only to find the relevant code.
@@ -90,7 +91,7 @@ def _command_body(args_token: str, running: str | None, client: str, deep: bool 
 
 Request: {args_token}
 
-Step 1. Call `gs_route` ({route_args}) once, for the request as a whole.
+Step 1. Your first tool call must be `gs_route` ({route_args}), once, for the request as a whole. Do not search, grep or read any file before it.
 {esc}   - Otherwise continue.
 
 Step 2. {_ACTIONS}"""
