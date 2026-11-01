@@ -70,11 +70,15 @@ Reproduce: `graphsnip bench` (tasks live in `.graphsnip/tasks.json`; replace the
 graphsnip cannot switch your agent's model by itself; an MCP server has no such power. What it does:
 
 1. **Decides.** `gs_route` / `graphsnip route "task"` scores a task from its wording and from graph size (files and tokens a context pack needs) into `light`, `standard` or `heavy`, and says why.
-2. **Steers.** `/graphsnip` is pinned to the light model (Claude Code: `model: haiku`; Copilot: set `routing.models.copilot.light`). If the router says the task is too hard it answers `ESCALATE` and tells you to use `/graphsnip-deep`, which runs on your session's own model. Codex prompts cannot pin a model, so Codex routing is advisory only.
+2. **Steers.** `/graphsnip` is pinned to the light model (Claude Code: `model: haiku`; Copilot: set `routing.models.copilot.light`). In Claude Code, if the router says the task is too hard it prints one line and hands the task to a Sonnet/Opus subagent (`graphsnip-standard` / `graphsnip-heavy`) and carries on. Copilot cannot delegate, so it asks you to re-run with `/graphsnip-deep` (your session's own model). Codex prompt files cannot pin a model, so for Codex use the launcher: `graphsnip codex "your task"` routes the task and runs `codex exec -m <model for the chosen tier>`, a real switch that graphsnip performs and can log as verified. Set your Codex model names under `routing.models.codex` (`light`, `standard`, `heavy`) in `.graphsnip/config.json`; `graphsnip install` also writes matching `graphsnip-light|standard|heavy` profiles into the Codex config.
 3. **Accounts.** Every decision is logged with its status: `routed` (the running tier matched), `escalate`, `overpowered`, `session`, or `advisory` (nobody verified which model ran). Dollars saved are credited **only for `routed`**; advisory decisions show as "potential".
 4. **Measures** (Claude Code only). `graphsnip usage` reads `~/.claude/projects/.../*.jsonl` to show which models actually produced replies and their token usage. This is the check on the estimate.
 
 Routing saves **dollars per token, not tokens**; the token savings above come from the graph alone. Prices are editable placeholders in `.graphsnip/config.json` under `routing.prices`. The running tier passed by the slash command is self-reported by the command text, so treat "routed" as "routed as designed", and use `graphsnip usage` for ground truth.
+
+## Dashboard layout
+
+The benchmark, recent calls and the routing explainer are collapsed by default; a sticky menu at the top jumps between sections. The routing section has a task-by-task log of what actually happened (stayed on the light model, escalated and handed off, ran on the session model).
 
 ## Install
 

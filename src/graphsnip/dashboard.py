@@ -130,6 +130,10 @@ footer{color:var(--mut);font-size:12.5px;margin-top:26px}
 """
 
 
+def _usd(v: float) -> str:
+    return f"-${abs(v):.4f}" if v < 0 else f"${v:.4f}"
+
+
 def _routing_card(project: Project, recs: list[dict], price: float) -> str:
     from graphsnip import router, usage
 
@@ -176,7 +180,7 @@ def _routing_card(project: Project, recs: list[dict], price: float) -> str:
     ev = router.events(recs, cfg, 8)
     erows = "".join(
         f"<tr><td class='muted'>{e(x['ts'][5:16].replace('T', ' '))}</td><td>{e(x['client'])}</td><td>{e(str(x['query'])[:55])}</td>"
-        f"<td><span class='chip'>{e(x['tier'])}</span></td><td>{e(x['path'])}</td><td class='r'>${x['saved']:.4f}</td></tr>" for x in ev)
+        f"<td><span class='chip'>{e(x['tier'])}</span></td><td>{e(x['path'])}</td><td class='r'>{_usd(x['saved'])}</td></tr>" for x in ev)
     events = ('<h2 style="font-size:15px;margin-top:4px">What happened, task by task</h2><div style="overflow:auto"><table><thead><tr><th>Time</th><th>Client</th><th>Task</th>'
               f'<th>Router said</th><th>What actually happened</th><th class="r">Est. saved</th></tr></thead><tbody>{erows}</tbody></table></div>'
               f'<p class="sub">Not yet counted as saved: ${rs["usd_potential"]:.4f} from decisions nobody verified or that ran on the session model.</p>')
