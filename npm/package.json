@@ -1,0 +1,11 @@
+{
+  "name": "code-graf",
+  "version": "0.1.0",
+  "description": "Thin npm wrapper for code-graf, a token-saving layer on top of Graphify (the real tool is a Python package).",
+  "bin": { "code-graf": "bin/code-graf.js" },
+  "files": ["bin", "README.md"],
+  "engines": { "node": ">=16" },
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "git+https://github.com/naubadnithin7/codegraf.git" },
+  "keywords": ["graphify", "claude-code", "copilot", "codex", "mcp", "tokens", "knowledge-graph"]
+}

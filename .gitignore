@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+# code-graf / graphify output for *this* repo while developing
+/.code-graf/
+/graphify-out/
+node_modules/
