@@ -1,0 +1,8 @@
+{
+  "note": "Questions phrased the way a person asks, without the code's own words. `expect` lists strings that must appear in the answer. Save as .graphsnip/tasks.json (or pass --tasks), then run: graphsnip eval",
+  "tasks": [
+    {"id": "v1", "kind": "vague", "question": "who is allowed to login into our system", "expect": ["auth-provider", "NO_PERMISSIONS_ERROR_MSG"]},
+    {"id": "v2", "kind": "vague", "question": "what happens when a user session runs out", "expect": ["SESSION_EXPIRED"]},
+    {"id": "k1", "kind": "keyword", "question": "validate_email", "expect": ["validate_email"]}
+  ]
+}

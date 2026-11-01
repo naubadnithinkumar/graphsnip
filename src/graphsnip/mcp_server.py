@@ -134,7 +134,7 @@ def handle(engine: Engine, msg: dict) -> dict | None:
 
 
 def serve(root: str = ".") -> None:
-    engine = Engine(root, source="agent")
+    engine = Engine(root, source="agent", background=True)
     sys.stderr.write(f"[graphsnip] MCP server ready (root={engine.p.root}, session={engine.session})\n")
     sys.stderr.flush()
     for line in sys.stdin:

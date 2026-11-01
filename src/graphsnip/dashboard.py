@@ -287,6 +287,31 @@ def _load_ab(project: Project) -> dict | None:
         return None
 
 
+def _retrieval_card(project: Project) -> str:
+    p = project.gs_dir / "retrieval.json"
+    try:
+        res = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except Exception:
+        res = None
+    if not res:
+        return ""
+    t = res["totals"]
+    rows = ""
+    for r in res["tasks"]:
+        k, h = r["keyword"], r["hybrid"]
+        cell = lambda a: ('<span class="badge">found</span>' if a["hit"] else '<span class="badge warn">missed</span>')  # noqa: E731
+        rows += (f"<tr><td>{e(r['question'][:80])}</td><td class='r'>{cell(k)}</td><td class='r'>{cell(h)}</td>"
+                 f"<td class='r'>{k['tokens']:,} → {h['tokens']:,}</td></tr>")
+    warn = ('<p class="sub" style="color:var(--bad)">Hybrid missed questions that keyword search found: do not ship this model or setting for this repo.</p>'
+            if t["lost"] else "")
+    body = (f'<p class="sub">Same questions asked of <code>gs_pack</code> twice: keyword only, then keyword + semantic ({e(str(res.get("model")))}). '
+            f'Found means every expected symbol or string is in the result. Run <code>graphsnip eval</code> to refresh.</p>'
+            f'<div style="overflow:auto"><table><thead><tr><th>Question</th><th class="r">Keyword</th><th class="r">Hybrid</th><th class="r">Tokens returned</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>{warn}')
+    return _fold("retrieval", "Semantic search: keyword vs hybrid",
+                 f"found {t['keyword_hits']}/{t['n']} → {t['hybrid_hits']}/{t['n']} · gained {t['gained']}, lost {t['lost']}", body, open_=True)
+
+
 def _signed(v: float, digits: int = 4) -> str:
     return f"-${abs(v):.{digits}f}" if v < 0 else f"${v:.{digits}f}"
 
@@ -525,6 +550,10 @@ def build_html(project: Project, graph_href: str) -> str:
                               "".join(bench_parts)))
     sections.insert(1, _routing_card(project, recs, price))  # right after the tokens/by-tool row
     sections.insert(2, _ab_card(project))
+    rc = _retrieval_card(project)
+    nav_sem = '<a href="#retrieval">Semantic</a>' if rc else ""
+    if rc:
+        sections.insert(3, rc)
     sections.append(graph_card)
 
     sections.append(
@@ -543,7 +572,7 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<title>graphsnip dashboard</title><style>{CSS}</style></head><body><div class="wrap">'
             f'<header><div class="brand"><div class="logo">cg</div><div><h1>graphsnip <span class="badge{head_cls}">{e(head_label)}</span></h1>'
             f'<div class="sub">{e(project.root.name)} · generated {now} · v{__version__}</div></div></div><div class="chips">{"".join(chips)}</div></header>'
-            f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#ab">Measured A/B</a><a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
+            f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#ab">Measured A/B</a>{nav_sem}<a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
             f'<div class="grid4" id="top">{"".join(kpis)}</div>{"".join(sections)}'
             f'<footer>graphsnip is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; graphsnip adds symbol-level retrieval, '
             f'context packs, hooks, MCP, and this honest accounting.</footer></div>{TAB_JS}</body></html>')

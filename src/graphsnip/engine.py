@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from graphsnip import ledger as _ledger
+from graphsnip import semantic
 from graphsnip.baseline import Baseline, query_terms
 from graphsnip.project import CODE_EXTS, GraphError, Project, parse_line
 from graphsnip.slicer import shorten_docstring, signature, slice_symbol
@@ -40,22 +42,27 @@ class Result:
 
 
 class Engine:
-    def __init__(self, root=".", session: str | None = None, source: str = "cli", auto_refresh: bool = True):
+    def __init__(self, root=".", session: str | None = None, source: str = "cli", auto_refresh: bool = True,
+                 background: bool = False):
         self.p = Project(root)
         self.ledger = _ledger.Ledger(self.p.gs_dir)
         self.base = Baseline(self.p)
         self.session = session or uuid.uuid4().hex[:8]
         self.source = source
         self.auto_refresh = auto_refresh
+        self.background = background  # long-lived servers refresh the graph without blocking the query
         self._seen: dict[tuple, str] = {}
+        self.last_retrieval = "keyword"
 
     # ------------------------------------------------------------ plumbing
     def _graph(self):
-        self.p.ensure_graph(self.auto_refresh)
+        self.p.ensure_graph(self.auto_refresh, background=self.background)
         return self.p.graph()
 
     def _finish(self, tool: str, query: str, text: str, baseline: int, files: list[str],
                 ok: bool = True, deduped: bool = False) -> Result:
+        if ok and self.background and self.p.refreshing():
+            text = text.rstrip() + "\n\n(the graph is refreshing in the background; this answer uses the previous snapshot)"
         ret = count_tokens(text)
         if ok:
             self.ledger.record(kind="call", tool=tool, query=query[:200], returned=ret, baseline=baseline,
@@ -82,7 +89,13 @@ class Engine:
             G = self._graph()
             from graphify.serve import _query_graph_text
 
-            text = _query_graph_text(G, question, mode="bfs", depth=depth, token_budget=budget,
+            self.last_retrieval = "keyword"
+            q = question
+            sem = semantic.search(self.p, question, k=3) if semantic.has_index(self.p) else []
+            if sem:
+                q = question + " " + " ".join(re.sub(r"\(\)\s*$", "", str(G.nodes[n].get("label", ""))).strip(". ") for n, _s in sem)
+                self.last_retrieval = "hybrid"
+            text = _query_graph_text(G, q, mode="bfs", depth=depth, token_budget=budget,
                                      graph_path=str(self.p.graph_json))
         except GraphError as e:
             return self._fail(str(e))
@@ -224,11 +237,13 @@ class Engine:
             qs = _score_query(G, terms, collect_per_term_seeds=True)
             seeds = _pick_seeds(qs.ranked, max_k=4, G=G, best_seed_by_term=qs.best_seed_by_term,
                                 term_order=tuple(terms))
+            sem_raw = semantic.search(self.p, task, k=20) if semantic.has_index(self.p) else []
         except GraphError as e:
             return self._fail(str(e))
         except Exception as e:
             return self._fail(f"pack failed: {type(e).__name__}: {e}")
-        if not seeds and not qs.ranked:
+        self.last_retrieval = "hybrid" if sem_raw else "keyword"
+        if not seeds and not qs.ranked and not sem_raw:
             return self._fail("No symbols matched this task. Try different keywords, or fall back to grep.")
 
         def deg(n):
@@ -278,6 +293,25 @@ class Engine:
                     cand[m] = max(cand.get(m, 0), 0.9 / (1.0 + 0.12 * rank_i))
                     rank_i += 1
 
+        sem_rank: dict[str, int] = {}
+        if sem_raw:
+            sem_ids = []
+            for n, _sc in sem_raw:
+                for m in resolve(n):
+                    if is_sym(m) and m not in sem_ids:
+                        sem_ids.append(m)
+            lex_ids: list[str] = []
+            for _score, n in qs.ranked[:40]:
+                for m in resolve(n):
+                    if is_sym(m) and m not in lex_ids:
+                        lex_ids.append(m)
+            for i, (n, _sc) in enumerate(semantic.rrf(lex_ids, sem_ids)[:30]):
+                cand[n] = max(cand.get(n, 0), 0.9 / (1.0 + 0.12 * i))
+                if i < 4:
+                    seed_syms.append(n)
+            for i, n in enumerate(sem_ids[:8]):
+                sem_rank[n] = i
+
         def expand(n: str, w: float, hop: int):
             edges = []
             try:
@@ -322,6 +356,8 @@ class Engine:
                 elif any(len(t) >= 5 and (tok.startswith(t[:5]) or t.startswith(tok)) and len(tok) >= 5 for tok in toks):
                     hit += 0.5
             boost = 1.0 + 2.0 * (hit / max(len(tq), 1))
+            if n in sem_rank:  # a close semantic match counts even when no word of the question appears in the name
+                boost *= 1.0 + 1.5 / (1.0 + sem_rank[n])
             pen = 0.35 if (not wants_tests and self._is_test_path(str(d.get("source_file")))) else 1.0
             final[n] = w * boost * pen
         ordered = sorted(final, key=lambda n: -final[n])[:60]

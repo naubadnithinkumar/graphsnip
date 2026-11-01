@@ -174,6 +174,35 @@ graphsnip codex --dry-run "refactor session handling"      # print the command o
 `graphsnip install` also writes matching `graphsnip-light|standard|heavy` profiles into the Codex config.
 </details>
 
+## Semantic search (optional)
+
+Keyword search finds code that shares words with your question. A vague question such as "who is allowed to login" may share none, so
+graphsnip can also match by meaning. Install the extra and build the index once:
+
+```bash
+pip install 'graphsnip[semantic]'
+graphsnip embed          # one vector per function/class, stored in .graphsnip/semantic/
+graphsnip eval           # keyword-only vs hybrid on your own questions
+```
+
+- **What is embedded:** each graph symbol's name, file, the names it calls and is called by, and the start of its body. The vectors live in
+  three small derived files (`vectors.npy`, `ids.json`, `meta.json`) next to the ledger. Graphify's `graph.json` is not touched.
+- **Local only:** a small ONNX model (`BAAI/bge-small-en-v1.5` by default) runs on your machine. Nothing is sent anywhere. No vector database is needed.
+- **Hybrid ranking:** keyword and semantic hits are merged by reciprocal rank fusion, then expanded through the graph (callers, callees) and
+  packed within the token budget, as before. `gs_find` and `gs_pack` get better; no new tool is added, so there is no extra tool overhead.
+- **Stays current:** after a graph refresh only new or changed symbols are re-embedded, and deleted ones are dropped.
+- **Falls back:** without the extra or an index, behaviour is exactly the keyword search you had before.
+
+**Proof, not promise.** `graphsnip eval` asks the same questions with and without the index and shows what each found (see
+[`docs/semantic-tasks.example.json`](docs/semantic-tasks.example.json) for the format). If hybrid does not beat keyword on your repo,
+the dashboard says so. Whether better retrieval also lowers your bill is a separate question that `graphsnip ab` answers.
+
+### Safer graph refresh
+
+The graph now refreshes under a cross-process lock (two editors on one repo no longer rebuild at once). The MCP server refreshes in the
+background and answers from the previous snapshot meanwhile. Changes are found by content hash, so a `git checkout` that touches files
+without changing them does nothing, and deleted files are noticed. `graphsnip status` lists what changed.
+
 ## Measured A/B: real tokens and real cost
 
 The dashboard's savings are estimates against a hypothetical baseline. To get **measured** numbers, run the same questions through headless Claude Code with and without graphsnip:
@@ -201,6 +230,8 @@ graphsnip report --open             # "Measured A/B (real runs)" card + headline
 | `graphsnip init` | build graph, install integrations, benchmark, write dashboard (`--dry-run` previews, writes nothing) |
 | `graphsnip demo [--open] [--bundle DIR]` | graph + benchmark + dashboard in one go; `--bundle` makes a shareable folder |
 | `graphsnip build [--force]` | build or refresh the Graphify graph (code only, no LLM) |
+| `graphsnip embed [--force] [--status]` | build or refresh the optional semantic index (only changed symbols are re-embedded) |
+| `graphsnip eval [--tasks FILE]` | keyword-only vs hybrid retrieval on your own questions; feeds the dashboard |
 | `graphsnip pack "task"` | token-budgeted bundle of the code relevant to a task |
 | `graphsnip find "question"` | budgeted map: where things live, how they connect |
 | `graphsnip symbol Name` | one function or class: exact lines, callers, callees |

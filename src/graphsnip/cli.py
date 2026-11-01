@@ -32,11 +32,74 @@ def _emit(r: Result, quiet: bool = False) -> int:
 
 def cmd_build(a) -> int:
     p = Project(a.root)
-    s = p.build(force=a.force)
+    if not p.try_lock():
+        print("Another graphsnip refresh is running; waiting for it to finish...")
+        p.wait_unlocked(900.0)
+        if p.has_graph() and not a.force:
+            s = p.graph_stats()
+            print(f"Graph is up to date: {s['nodes']:,} nodes, {s['edges']:,} edges, {s['symbols']:,} code symbols.")
+            return 0
+        if not p.try_lock():
+            print("Could not take the refresh lock; try again.")
+            return 1
+    try:
+        s = p.build(force=a.force)
+    finally:
+        p.unlock()
     print(f"Graph ready ({s['mode']}, {s['seconds']}s): {s['nodes']:,} nodes, {s['edges']:,} edges, "
           f"{s['communities']:,} communities, {s['symbols']:,} code symbols.")
     print(f"  map:    {p.graph_html}")
     print(f"  report: {p.report_md}")
+    return 0
+
+
+def cmd_embed(a) -> int:
+    from graphsnip import semantic
+
+    p = Project(a.root)
+    if a.status:
+        st = semantic.status(p)
+        if not st["present"]:
+            print("No semantic index yet. Build one with `graphsnip embed` (needs: pip install 'graphsnip[semantic]').")
+            return 0
+        pend = "unknown" if st["pending"] is None else f"{st['pending']:,}"
+        print(f"Semantic index: {st['count']:,} symbols, model {st['model']} ({st['dim']} dims), {pend} symbols waiting to be re-embedded.")
+        return 0
+    if not p.try_lock():
+        print("Another graphsnip refresh is running; waiting for it to finish...")
+        p.wait_unlocked(900.0)
+    else:
+        p.unlock()
+    p.ensure_graph(True)
+    try:
+        emb = semantic.get_embedder(p)
+    except semantic.SemanticUnavailable as e:
+        print(str(e))
+        return 1
+
+    def prog(done, total):
+        if total:
+            print(f"\r  embedding {done:,}/{total:,}", end="", flush=True)
+
+    r = semantic.refresh(p, emb, force=a.force, progress=prog)
+    if r["embedded"]:
+        print()
+    print(f"Semantic index ready: {r['total']:,} symbols ({r['embedded']:,} embedded, {r['reused']:,} reused, "
+          f"{r['removed']:,} removed) with {r['model']} in {r['seconds']}s.")
+    print(f"  stored in {semantic.sem_dir(p)} (derived data; safe to delete)")
+    return 0
+
+
+def cmd_eval(a) -> int:
+    from graphsnip import retrieval, semantic
+
+    try:
+        res = retrieval.run_eval(a.root, a.tasks)
+    except semantic.SemanticUnavailable as e:
+        print(str(e))
+        return 1
+    print(retrieval.format_table(res))
+    print("  saved: .graphsnip/retrieval.json (the dashboard shows it)")
     return 0
 
 
@@ -48,7 +111,14 @@ def cmd_status(a) -> int:
     s = p.graph_stats()
     print(f"Project: {p.root}")
     print(f"Graph:   {s['nodes']:,} nodes · {s['edges']:,} edges · {s['communities']:,} communities · {s['symbols']:,} code symbols")
-    print(f"Stale:   {'yes, run `graphsnip build` (the server refreshes automatically)' if p.is_stale(0) else 'no'}")
+    ch = p.changes()
+    if ch and (ch["added"] or ch["modified"] or ch["deleted"]):
+        print(f"Stale:   yes, {len(ch['modified'])} modified, {len(ch['added'])} added, {len(ch['deleted'])} deleted "
+              f"(run `graphsnip build`; the server refreshes automatically)")
+    else:
+        print(f"Stale:   {'yes, run `graphsnip build` (the server refreshes automatically)' if p.is_stale(0) else 'no'}")
+    if p.refreshing():
+        print("Refresh: running now")
     print(f"Mode:    {p.config()['mode']}")
     return 0
 
@@ -347,6 +417,19 @@ def cmd_doctor(a) -> int:
         "copilot": (p.root / ".vscode" / "mcp.json").exists() and "graphsnip" in (p.root / ".vscode" / "mcp.json").read_text(encoding="utf-8", errors="ignore"),
         "codex": (p.root / ".codex" / "config.toml").exists() and "graphsnip" in (p.root / ".codex" / "config.toml").read_text(encoding="utf-8", errors="ignore"),
     }
+    from graphsnip import semantic as _sem
+
+    st_ = _sem.status(p) if p.has_graph() else {"present": False}
+    if st_["present"]:
+        pend = st_.get("pending")
+        line(not pend, f"semantic index: {st_['count']:,} symbols, {st_['model']}" + (f", {pend:,} to re-embed" if pend else ""),
+             "graphsnip embed")
+    else:
+        try:
+            import fastembed  # noqa: F401
+            print("· semantic search: extra installed, no index yet (graphsnip embed)")
+        except Exception:
+            print("· semantic search: optional, not enabled (pip install 'graphsnip[semantic]' then graphsnip embed)")
     for c in CLIENTS:
         print(f"{'✓' if found[c] else '·'} {c}: {'MCP server registered' if found[c] else 'not installed here (graphsnip install --clients ' + c + ')'}")
     for label, f, key in (("claude", mcp_claude, "mcpServers"), ("copilot", p.root / ".vscode" / "mcp.json", "servers")):
@@ -390,6 +473,11 @@ def main(argv=None) -> int:
 
     sp = add("build", cmd_build, "build or refresh the Graphify graph (code only, no LLM)")
     sp.add_argument("--force", action="store_true")
+    sp = add("eval", cmd_eval, "compare keyword-only and hybrid retrieval on your own questions (needs the semantic index)")
+    sp.add_argument("--tasks", default=None, help="tasks.json with question + expect (default: .graphsnip/tasks.json)")
+    sp = add("embed", cmd_embed, "build or refresh the optional semantic index (only changed symbols are re-embedded)")
+    sp.add_argument("--force", action="store_true", help="re-embed everything")
+    sp.add_argument("--status", action="store_true", help="show the index state and exit")
     add("status", cmd_status, "show graph status")
     sp = add("find", cmd_find, "locate symbols and connections (budgeted map)")
     sp.add_argument("question")
