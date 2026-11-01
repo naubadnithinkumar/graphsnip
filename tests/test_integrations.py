@@ -209,3 +209,42 @@ def test_usage_scan_reads_transcripts(tmp_path):
     u = usage.scan(tmp_path, router.DEFAULTS, directory=d)
     assert u["families"]["haiku"]["messages"] == 1 and u["families"]["opus"]["cache_read"] == 9000
     assert u["usd_total"] > 0
+
+
+def test_codex_launcher_switches_model_and_logs(tmp_path, monkeypatch, capsys):
+    import json as _j, stat, sys as _s
+    from graphsnip import cli, ledger, router
+    from graphsnip.project import Project
+
+    (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
+    (tmp_path / ".graphsnip").mkdir()
+    (tmp_path / ".graphsnip" / "config.json").write_text(_j.dumps({"routing": {"models": {"codex": {"light": "mini-x", "heavy": "big-x"}}}}))
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "codex"
+    fake.write_text("#!/bin/sh\necho \"ARGS: $@\" > \"$FAKE_OUT\"\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bindir}:" + __import__("os").environ["PATH"])
+    monkeypatch.setenv("FAKE_OUT", str(tmp_path / "out.txt"))
+    rc = cli.main(["codex", "--root", str(tmp_path), "where is hello defined"])
+    assert rc == 0
+    assert "-m mini-x" in (tmp_path / "out.txt").read_text()
+    recs = ledger.Ledger(Project(str(tmp_path)).gs_dir).read()
+    r = [x for x in recs if x.get("kind") == "route"][-1]
+    assert r["client"] == "codex" and r["status"] == "routed" and r["tier"] == "light"
+    cfg = router.config(Project(str(tmp_path)))
+    ev = router.events(recs, cfg)
+    assert "graphsnip launched it" in ev[0]["path"]
+
+
+def test_events_describe_escalation_and_handoff():
+    from graphsnip import router
+
+    cfg = router.DEFAULTS
+    recs = [
+        {"kind": "route", "ts": "2026-11-01T10:00:00", "client": "claude", "query": "refactor x", "tier": "heavy", "status": "escalate", "running": "light", "usd_saved": 0},
+        {"kind": "route", "ts": "2026-11-01T10:00:05", "client": "claude", "query": "refactor x", "tier": "heavy", "status": "routed", "running": "heavy", "handoff": True, "usd_saved": -0.002},
+    ]
+    ev = router.events(recs, cfg)
+    assert len(ev) == 1 and "handed off, finished on heavy (opus)" in ev[0]["path"] and ev[0]["saved"] < 0
+    assert router.summarize(recs, cfg)["decisions"] == 1

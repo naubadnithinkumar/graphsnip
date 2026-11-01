@@ -449,6 +449,8 @@ class Engine:
         sizing = Engine(self.p.root, session=self.session, source="router", auto_refresh=False).pack(task, budget=4000)
         r = router.decide(task, pack_files=len(sizing.files) if sizing.ok else 0,
                           pack_tokens=sizing.returned if sizing.ok else 0, cfg=cfg)
+        if running_tier == "auto":  # graphsnip itself launches the agent on the chosen tier, so the match is certain
+            running_tier = r.tier
         status = router.status_of(r.tier, running_tier)
         acct = router.account(cfg, r, status)
         model = (cfg["models"].get(client) or {}).get(r.tier)

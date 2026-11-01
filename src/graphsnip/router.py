@@ -140,3 +140,36 @@ def summarize(records: list[dict], cfg: dict) -> dict:
         "handoffs": len(handoffs),
         "recent": list(reversed(rows[-8:])),
     }
+
+
+def _m(cfg: dict, client: str, tier: str | None) -> str:
+    if not tier:
+        return "?"
+    name = (cfg["models"].get(client) or {}).get(tier)
+    return f"{tier} ({name})" if name else tier
+
+
+def events(records: list[dict], cfg: dict, limit: int = 12) -> list[dict]:
+    """One row per routed task, in time order, describing what actually happened (switch, escalation, hand-off)."""
+    allrows = [r for r in records if r.get("kind") == "route"]
+    handoffs = [r for r in allrows if r.get("handoff")]
+    out = []
+    for r in allrows:
+        if r.get("handoff"):
+            continue
+        c, tier, run, st = r.get("client", "claude"), r.get("tier", "standard"), r.get("running"), r.get("status", "advisory")
+        if st == "routed":
+            path = f"ran on {_m(cfg, c, tier)}" + (" (graphsnip launched it)" if run == tier and c == "codex" else "")
+        elif st == "escalate":
+            h = next((x for x in handoffs if x.get("query") == r.get("query") and x.get("client") == c and x.get("ts", "") >= r.get("ts", "")), None)
+            path = f"started on {_m(cfg, c, run)} → too light → " + (f"handed off, finished on {_m(cfg, c, h.get('tier'))}" if h else "stopped, user had to re-run")
+        elif st == "session":
+            path = "ran on the session's own model (/graphsnip-deep)"
+        elif st == "overpowered":
+            path = f"ran on {_m(cfg, c, run)}; {tier} would have been enough"
+        else:
+            path = "decision only; which model ran was not verified"
+        out.append({"ts": r.get("ts", ""), "client": c, "query": r.get("query", ""), "tier": tier, "status": st,
+                    "path": path, "saved": float(r.get("usd_saved", 0)) + sum(float(x.get("usd_saved", 0)) for x in handoffs
+                                                                             if st == "escalate" and x.get("query") == r.get("query"))})
+    return list(reversed(out))[:limit]

@@ -229,6 +229,12 @@ def _light_model(root: Path, client: str) -> str | None:
     return (router.config(Project(root))["models"].get(client) or {}).get("light") or None
 
 
+def _codex_models(root: Path) -> dict:
+    from graphsnip import router
+
+    return router.config(Project(root))["models"].get("codex") or {}
+
+
 def _codex_prompt_path() -> Path:
     home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
     return home / "prompts" / "graphsnip.md"
@@ -300,9 +306,10 @@ def _copilot(root: Path, plan: Plan) -> None:
     plan.add(dpath, "add /graphsnip-deep prompt file", lambda: _write_owned(dpath, copilot_prompt(lm, deep=True)))
 
 
-def _toml_block(cmd: str, args: list[str]) -> str:
+def _toml_block(cmd: str, args: list[str], models: dict | None = None) -> str:
     a = ", ".join(json.dumps(x) for x in args)
-    return f'{TOML_BEGIN}\n[mcp_servers.{SERVER}]\ncommand = {json.dumps(cmd)}\nargs = [{a}]\n{TOML_END}\n'
+    prof = "".join(f'\n[profiles.graphsnip-{t}]\nmodel = {json.dumps(m)}\n' for t, m in (models or {}).items() if m)
+    return f'{TOML_BEGIN}\n[mcp_servers.{SERVER}]\ncommand = {json.dumps(cmd)}\nargs = [{a}]\n{prof}{TOML_END}\n'
 
 
 def _codex(root: Path, plan: Plan, scope: str) -> None:
@@ -313,7 +320,7 @@ def _codex(root: Path, plan: Plan, scope: str) -> None:
     else:
         cfg = root / ".codex" / "config.toml"
     plan.add(cfg, f"register MCP server '{SERVER}' ({scope} config)",
-             lambda: _upsert_block(cfg, _toml_block(cmd, args), TOML_BEGIN, TOML_END))
+             lambda: _upsert_block(cfg, _toml_block(cmd, args, _codex_models(root)), TOML_BEGIN, TOML_END))
     plan.add(root / "AGENTS.md", "add graphsnip guidance block",
              lambda: _upsert_block(root / "AGENTS.md", GUIDE, BEGIN, END))
     # Codex only loads custom prompts from $CODEX_HOME/prompts (default ~/.codex/prompts), never from the repo.

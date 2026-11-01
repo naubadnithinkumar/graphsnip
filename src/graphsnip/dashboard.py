@@ -80,6 +80,11 @@ def _kpi(label: str, value: str, sub: str = "", accent: bool = False) -> str:
             f'<div class="k-v">{value}</div><div class="k-s">{e(sub)}</div></div>')
 
 
+def _fold(fid: str, title: str, summary: str, body: str, open_: bool = False) -> str:
+    return (f'<section class="card fold" id="{fid}"><details{" open" if open_ else ""}><summary><span class="ft">{e(title)}</span>'
+            f'<span class="fs">{e(summary)}</span></summary><div class="fb">{body}</div></details></section>')
+
+
 CSS = """
 :root{--bg:#f6f7f9;--card:#fff;--ink:#121826;--mut:#5b6577;--line:#e3e6ec;--brand:#0f766e;--brand2:#14b8a6;
 --grep:#94a3b8;--gfy:#60a5fa;--gfyread:#6366f1;--cg:#0f766e;--bad:#b91c1c;--ok:#15803d;--warn:#b45309}
@@ -113,6 +118,14 @@ iframe{width:100%;height:560px;border:1px solid var(--line);border-radius:10px;b
 .btn:hover{border-color:var(--brand)}
 details{margin-top:6px}summary{cursor:pointer;color:var(--brand);font-weight:600}
 .callout{border-left:4px solid var(--brand);background:color-mix(in srgb,var(--brand) 8%,transparent);padding:10px 14px;border-radius:0 8px 8px 0;font-size:14px}
+details>summary{list-style:none}details>summary::-webkit-details-marker{display:none}
+.fold{padding:0}.fold>details{margin:0}.fold>details>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 20px;color:var(--ink)}
+.fold>details>summary::after{content:"Show ▾";color:var(--brand);font-size:13px;font-weight:600;margin-left:auto}.fold>details[open]>summary::after{content:"Hide ▴"}
+.ft{font-weight:700;font-size:16px}.fs{color:var(--mut);font-size:13px;font-weight:400}.fb{padding:0 20px 18px}
+.nav{position:sticky;top:0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;padding:8px 0;margin:-8px 0 14px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px)}
+.nav a{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;font-size:13px;color:var(--mut);text-decoration:none}.nav a:hover{color:var(--brand);border-color:var(--brand)}
+html{scroll-behavior:smooth}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}.flow .st{border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;background:var(--card)}
+.flow .st.g{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 9%,transparent)}.flow .st.w{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.flow .ar{color:var(--mut)}
 footer{color:var(--mut);font-size:12.5px;margin-top:26px}
 """
 
@@ -124,35 +137,67 @@ def _routing_card(project: Project, recs: list[dict], price: float) -> str:
     rs = router.summarize(recs, cfg)
     firsts = [r.get("ts") for r in recs if r.get("source") in ("agent", "cli") and r.get("ts")]
     u = usage.scan(project.root, cfg, since=min(firsts) if firsts else None)
-    if not rs["decisions"] and not u:
-        return ('<section class="card"><h2>Model routing</h2><p class="sub">No routing decisions yet. Use <code>/graphsnip</code> in your agent '
-                '(or <code>graphsnip route "your task"</code>) and this section fills in.</p></section>')
+    mod = lambda c, t: (cfg["models"].get(c) or {}).get(t) or "-"  # noqa: E731
+
+    # ---- explainer (collapsed)
+    flow = ('<div class="flow"><span class="st">Task typed in /graphsnip</span><span class="ar">→</span><span class="st">gs_route scores it<br>(wording + graph size)</span>'
+            '<span class="ar">→</span><span class="st g">light enough: the cheap model (e.g. Haiku) answers</span></div>'
+            '<div class="flow"><span class="st">gs_route says it is too hard</span><span class="ar">→</span>'
+            '<span class="st w">prints "Escalating to &lt;model&gt;…"</span><span class="ar">→</span>'
+            '<span class="st w">a stronger-model subagent (Sonnet / Opus) does the work</span><span class="ar">→</span><span class="st g">same answer, no re-typing</span></div>')
+    status_rows = "".join(f"<tr><td><code>{k}</code></td><td>{v}</td></tr>" for k, v in [
+        ("routed", "the running tier matched the decision; savings are credited"),
+        ("escalate", "the pinned light model was too weak, so the task was handed to a stronger one (or stopped, on clients that cannot hand off)"),
+        ("session", "ran on the session's own model on purpose (/graphsnip-deep); counted as a missed downgrade if a cheaper tier would do"),
+        ("overpowered", "ran on a stronger tier than needed"),
+        ("advisory", "decision only; nothing verified which model ran, so no savings are claimed")])
+    client_rows = "".join(f"<tr><td>{c}</td><td>{h}</td><td>{v}</td></tr>" for c, h, v in [
+        ("Claude Code", "<code>/graphsnip</code> pinned to the light model; hard tasks hand off to a Sonnet/Opus subagent automatically", "transcripts (<code>graphsnip usage</code>)"),
+        ("Copilot (VS Code)", "<code>/graphsnip</code> pinned only if <code>routing.models.copilot.light</code> is set; hard tasks need <code>/graphsnip-deep</code>", "not available"),
+        ("Codex", "<code>graphsnip codex \"task\"</code> picks the tier and runs <code>codex exec -m &lt;model&gt;</code>; the prompt file alone is advisory", "launcher knows the model it passed")])
+    tier_rows = "".join(f"<tr><td>{t}</td><td>{e(mod('claude', t))}</td><td>{e(mod('codex', t))}</td><td class='r'>${cfg['prices'][t][0]:g} / ${cfg['prices'][t][1]:g}</td></tr>" for t in router.TIERS)
+    explain = _fold_inner("How routing works, statuses and client support",
+        flow + '<h2 style="font-size:15px;margin-top:12px">Statuses</h2><table><tbody>' + status_rows + '</tbody></table>'
+        '<h2 style="font-size:15px;margin-top:14px">Per client</h2><table><thead><tr><th>Client</th><th>How the model is switched</th><th>Verified by</th></tr></thead><tbody>' + client_rows + '</tbody></table>'
+        '<h2 style="font-size:15px;margin-top:14px">Tiers, models and prices used for estimates</h2><table><thead><tr><th>Tier</th><th>Claude model</th><th>Codex model</th><th class="r">$ per M tokens (in / out)</th></tr></thead><tbody>'
+        + tier_rows + '</tbody></table><p class="sub">Prices are editable placeholders (<code>routing.prices</code> in <code>.graphsnip/config.json</code>). '
+        'Routing saves dollars per token, not tokens; the token savings above come from the graph alone.</p>')
+
+    if not rs["decisions"]:
+        return ('<section class="card" id="routing"><h2>Model routing</h2><p class="sub">No routing decisions yet. Use <code>/graphsnip</code> in your agent '
+                '(or <code>graphsnip route "your task"</code>) and this section fills in.</p>' + explain + '</section>')
+
     kp = "".join([
         _kpi("Routing decisions", n(rs["decisions"]), " · ".join(f"{k} {v}" for k, v in rs["by_tier"].items() if v) or "-"),
-        _kpi("Routed to a cheaper model", n(rs["routed_cheaper"]), f"{n(rs['tokens_on_cheaper'])} tokens handled by the light tier"),
+        _kpi("Ran on a cheaper model", n(rs["routed_cheaper"]), f"{n(rs['tokens_on_cheaper'])} tokens handled by the light tier"),
         _kpi("Est. dollars saved by routing", f"${rs['usd_saved']:.4f}", f"vs running everything on the {cfg['baseline_tier']} tier", accent=True),
         _kpi("Escalations", n(rs["escalations"]), f"{rs['handoffs']} handed to a stronger model automatically"),
     ])
-    srows = "".join(f"<tr><td>{e(k)}</td><td class='r'>{v}</td></tr>" for k, v in sorted(rs["by_status"].items()))
-    rec = "".join(f"<tr><td>{e(r.get('tier',''))}</td><td>{e(r.get('status',''))}</td><td>{e(str(r.get('query',''))[:60])}</td>"
-                  f"<td class='r'>${float(r.get('usd_saved', 0)):.4f}</td></tr>" for r in rs["recent"])
+    ev = router.events(recs, cfg, 8)
+    erows = "".join(
+        f"<tr><td class='muted'>{e(x['ts'][5:16].replace('T', ' '))}</td><td>{e(x['client'])}</td><td>{e(str(x['query'])[:55])}</td>"
+        f"<td><span class='chip'>{e(x['tier'])}</span></td><td>{e(x['path'])}</td><td class='r'>${x['saved']:.4f}</td></tr>" for x in ev)
+    events = ('<h2 style="font-size:15px;margin-top:4px">What happened, task by task</h2><div style="overflow:auto"><table><thead><tr><th>Time</th><th>Client</th><th>Task</th>'
+              f'<th>Router said</th><th>What actually happened</th><th class="r">Est. saved</th></tr></thead><tbody>{erows}</tbody></table></div>'
+              f'<p class="sub">Not yet counted as saved: ${rs["usd_potential"]:.4f} from decisions nobody verified or that ran on the session model.</p>')
     meas = ""
     if u:
-        mrows = "".join(f"<tr><td>{e('other (synthetic/unknown)' if k == 'other' else k)}</td><td class='r'>{n(v['messages'])}</td><td class='r'>{n(v['input'])}</td><td class='r'>{n(v['output'])}</td>"
-                        f"<td class='r'>{n(v['cache_read'])}</td><td class='r'>${v['usd']:.2f}</td></tr>" for k, v in sorted(u["families"].items(), key=lambda kv: -kv[1]["usd"]))
+        mrows = "".join(f"<tr><td>{e('other (synthetic/unknown)' if k == 'other' else k)}</td><td class='r'>{n(v['messages'])}</td><td class='r'>{n(v['input'])}</td>"
+                        f"<td class='r'>{n(v['output'])}</td><td class='r'>{n(v['cache_read'])}</td><td class='r'>${v['usd']:.2f}</td></tr>"
+                        for k, v in sorted(u["families"].items(), key=lambda kv: -kv[1]["usd"]))
         span = f"since {e(str(u['since'])[:10])} (first graphsnip call)" if u.get("since") else "all history in this project"
-        meas = (f'<h2 style="font-size:15px;margin-top:14px">Measured: which model actually ran (Claude Code transcripts)</h2>'
-                f'<p class="sub">{span}. Cost = list-price equivalent for these tokens, <b>not your bill</b> (plans and caching change what you pay). '
-                f'Cache-read tokens are billed at 10% of the input price in this estimate.</p>'
-                f'<table><thead><tr><th>Model</th><th class="r">Replies</th><th class="r">Input</th><th class="r">Output</th><th class="r">Cache read</th><th class="r">≈ List-price cost</th></tr></thead>'
-                f'<tbody>{mrows}</tbody></table>')
-    return (f'<section class="card"><h2>Model routing</h2><div class="sub">graphsnip scores each task (wording + graph size) and steers it to the cheapest tier that can do it. '
-            f'Dollars are estimates from the editable price table; savings are counted only when the running model matched the decision.</div>'
-            f'<div class="grid4" style="margin-top:10px">{kp}</div>'
-            f'<div class="two"><div><table><thead><tr><th>Status</th><th class="r">Count</th></tr></thead><tbody>{srows}</tbody></table>'
-            f'<p class="sub">routed = verified match · advisory/session = not verified as routed (potential ${rs["usd_potential"]:.4f} if it had run on the chosen tier) · escalate = needed a stronger model</p></div>'
-            f'<div><table><thead><tr><th>Tier</th><th>Status</th><th>Task</th><th class="r">Saved</th></tr></thead><tbody>{rec}</tbody></table></div></div>'
-            f'{meas}</section>')
+        meas = _fold_inner("Measured: which model actually answered (Claude Code transcripts)",
+            f'<p class="sub">{span}. Cost = list-price equivalent for these tokens, <b>not your bill</b> (plans and caching change what you pay). '
+            f'Cache-read tokens are billed at 10% of the input price in this estimate.</p>'
+            f'<table><thead><tr><th>Model</th><th class="r">Replies</th><th class="r">Input</th><th class="r">Output</th><th class="r">Cache read</th>'
+            f'<th class="r">≈ List-price cost</th></tr></thead><tbody>{mrows}</tbody></table>')
+    return (f'<section class="card" id="routing"><h2>Model routing</h2><div class="sub">graphsnip scores each task and steers it to the cheapest model tier that can do it. '
+            f'Dollars are estimates; savings are counted only when the running model matched the decision.</div>'
+            f'<div class="grid4" style="margin-top:12px">{kp}</div>{events}{explain}{meas}</section>')
+
+
+def _fold_inner(title: str, body: str) -> str:
+    return f'<details style="margin-top:12px"><summary>{e(title)}</summary><div style="margin-top:8px">{body}</div></details>'
 
 
 def build_html(project: Project, graph_href: str) -> str:
@@ -196,6 +241,7 @@ def build_html(project: Project, graph_href: str) -> str:
             chips.append(f'<span class="chip">commit <b>{e(str(stats["built_at_commit"])[:8])}</b></span>')
 
     sections = []
+    bench_parts: list[str] = []
 
     # --- approach comparison (benchmark)
     if bench:
@@ -206,14 +252,14 @@ def build_html(project: Project, graph_href: str) -> str:
             ("Graphify query alone", t["graphify_tokens"], "b-gfy", "map only, no source code"),
             ("graphsnip", t["graphsnip_tokens"], "b-cg", f"{t['answered']}/{t['tasks']} answered with code"),
         ]
-        sections.append(
-            f'<section class="card"><h2>Same questions, four approaches</h2>'
+        bench_parts.append(
+            f'<h2>Same questions, four approaches</h2>'
             f'<div class="sub">{t["tasks"]} tasks on this repo · tokens an agent would put in context · baseline: {e(bench["baseline_definition"])}</div>'
             f'<div style="margin-top:12px">{_bars(items)}</div>'
             f'<div class="callout" style="margin-top:12px"><b>{t["saved_pct"]}% fewer tokens</b> than grep + read, and '
             f'<b>{t["saved_vs_graphify_read_pct"]}% fewer</b> than using Graphify alone and then reading the files it points to. '
             f'Graphify\'s query is cheaper still, but it returns a map without source code, so the agent has to read files afterwards. '
-            f'graphsnip returns the exact code in the same step.</div></section>')
+            f'graphsnip returns the exact code in the same step.</div>')
 
     # --- timeline + by tool
     tl_src = head["timeline"]
@@ -240,11 +286,11 @@ def build_html(project: Project, graph_href: str) -> str:
             trs += (f'<tr><td>{e(r["question"])}</td><td><span class="chip">{e(r["type"])}</span></td><td class="r">{n(r["naive_tokens"])}</td>'
                     f'<td class="r">{n(r["graphify_read_tokens"])}</td><td class="r">{n(r["graphsnip_tokens"])}</td><td class="r">{saved}</td>'
                     f'<td class="{"ok" if r["graphsnip_hit"] else "no"}">{"✓" if r["graphsnip_hit"] else "✗"}</td></tr>')
-        sections.append(
-            f'<section class="card"><h2>Benchmark tasks</h2><div class="sub">edit <code>.graphsnip/tasks.json</code> to use your own questions · '
+        bench_parts.append(
+            f'<h2 style="margin-top:18px">Benchmark tasks</h2><div class="sub">edit <code>.graphsnip/tasks.json</code> to use your own questions · '
             f're-run <code>graphsnip bench</code></div>'
             f'<div style="overflow:auto"><table style="margin-top:8px"><thead><tr><th>Question</th><th>Type</th><th class="r">grep + read</th>'
-            f'<th class="r">Graphify + read</th><th class="r">graphsnip</th><th class="r">Saved</th><th>OK</th></tr></thead><tbody>{trs}</tbody></table></div></section>')
+            f'<th class="r">Graphify + read</th><th class="r">graphsnip</th><th class="r">Saved</th><th>OK</th></tr></thead><tbody>{trs}</tbody></table></div>')
 
     # --- recent calls
     if live["recent"]:
@@ -252,16 +298,16 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<tr><td><code>{e(r.get("tool", ""))}</code></td><td>{e(str(r.get("query", ""))[:90])}</td><td class="r">{n(r.get("returned"))}</td>'
             f'<td class="r">{n(r.get("baseline"))}</td><td class="r">{(100 * (1 - r.get("returned", 0) / r["baseline"])) if r.get("baseline") else 0:.0f}%</td></tr>'
             for r in live["recent"])
-        sections.append(
-            f'<section class="card"><h2>Recent live calls</h2><div style="overflow:auto"><table style="margin-top:8px"><thead><tr><th>Tool</th><th>Query</th>'
-            f'<th class="r">Returned</th><th class="r">Baseline</th><th class="r">Saved</th></tr></thead><tbody>{trs}</tbody></table></div></section>')
+        sections.append(_fold("recent", "Recent live calls", f"last {len(live['recent'])} tool calls",
+            f'<div style="overflow:auto"><table style="margin-top:8px"><thead><tr><th>Tool</th><th>Query</th>'
+            f'<th class="r">Returned</th><th class="r">Baseline</th><th class="r">Saved</th></tr></thead><tbody>{trs}</tbody></table></div>'))
 
     # --- graph
     hub_rows = "".join(
         f'<tr><td><code>{e(str(t["label"]))}</code></td><td class="muted">{e(str(t["file"]))}:{t["line"]}</td><td class="r">{t["degree"]}</td></tr>' for t in top)
     langs = ", ".join(f"{e(k)} ×{n(v)}" for k, v in (stats.get("languages") or {}).items())
     graph_card = (
-        f'<section class="card"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
+        f'<section class="card" id="graph"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
         f'<div><h2>Knowledge graph (Graphify)</h2><div class="sub">every node is a symbol; colours are detected communities; click and drag to explore</div></div>'
         f'<a class="btn" href="{e(graph_href)}" target="_blank" rel="noopener">Open full screen ↗</a></div>'
         f'<div style="margin-top:12px"><iframe src="{e(graph_href)}" title="Graphify knowledge graph" loading="lazy"></iframe></div>'
@@ -270,11 +316,16 @@ def build_html(project: Project, graph_href: str) -> str:
         f'<tbody>{hub_rows}</tbody></table></div>'
         f'<div><h2 style="font-size:15px">Index</h2><p class="sub">Languages: {langs or "-"}</p>'
         f'<p class="sub">Built by Graphify (tree-sitter AST, no LLM, nothing left this machine). Report: <code>graphify-out/GRAPH_REPORT.md</code></p></div></div></section>')
-    sections.append(_routing_card(project, recs, price))
+    if bench_parts:
+        bt = bench["totals"]
+        sections.append(_fold("benchmark", "Benchmark (offline, same questions on this repo)",
+                              f"{bt['tasks']} tasks · {bt['saved_pct']}% fewer tokens than grep + read · {bt['answered']}/{bt['tasks']} answered with code",
+                              "".join(bench_parts)))
+    sections.insert(1, _routing_card(project, recs, price))  # right after the tokens/by-tool row
     sections.append(graph_card)
 
     sections.append(
-        '<section class="card"><details><summary>How these numbers are measured</summary>'
+        '<section class="card fold" id="method"><details><summary>How these numbers are measured</summary>'
         '<p><b>Baseline.</b> For each call, graphsnip prices what an agent without the graph would realistically do: grep the question\'s terms and read the '
         'top 8 matching files in full (symbol reads are priced against reading the whole file). This is deliberately conservative: it is far less than '
         '"read the whole repo", the number Graphify\'s own benchmark compares against.</p>'
@@ -289,7 +340,8 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<title>graphsnip dashboard</title><style>{CSS}</style></head><body><div class="wrap">'
             f'<header><div class="brand"><div class="logo">cg</div><div><h1>graphsnip <span class="badge{head_cls}">{e(head_label)}</span></h1>'
             f'<div class="sub">{e(project.root.name)} · generated {now} · v{__version__}</div></div></div><div class="chips">{"".join(chips)}</div></header>'
-            f'<div class="grid4">{"".join(kpis)}</div>{"".join(sections)}'
+            f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
+            f'<div class="grid4" id="top">{"".join(kpis)}</div>{"".join(sections)}'
             f'<footer>graphsnip is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; graphsnip adds symbol-level retrieval, '
             f'context packs, hooks, MCP, and this honest accounting.</footer></div></body></html>')
 

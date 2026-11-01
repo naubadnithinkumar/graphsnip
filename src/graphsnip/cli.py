@@ -108,6 +108,35 @@ def cmd_route(a) -> int:
     return 0
 
 
+def cmd_codex(a) -> int:
+    """Route a task, then launch `codex exec -m <model>` on the chosen tier. Unlike a prompt file this really switches the model."""
+    import subprocess
+
+    from graphsnip import router
+
+    p = Project(a.root)
+    cfg = router.config(p)
+    eng = Engine(a.root, source="cli")
+    task = " ".join(a.task)
+    r = router.decide(task, cfg=cfg)  # quick wording-only decision; the full graph-aware route is logged below
+    models = cfg["models"].get("codex") or {}
+    tier = a.tier or r.tier
+    model = models.get(tier)
+    res = eng.route(task, client="codex", running_tier="auto" if model else "session")
+    print(res.text, file=sys.stderr)
+    if not model:
+        print(f"[graphsnip] no Codex model configured for tier '{tier}'. Set routing.models.codex.{tier} in .graphsnip/config.json "
+              f"(any model name your Codex accepts). Running on Codex's default model instead.", file=sys.stderr)
+    cmd = ["codex", "exec"] + (["-m", model] if model else []) + a.extra + [task]
+    if a.dry_run:
+        print(" ".join(cmd))
+        return 0
+    if not shutil.which("codex"):
+        print("[graphsnip] `codex` was not found on PATH.", file=sys.stderr)
+        return 127
+    return subprocess.call(cmd, cwd=str(p.root))
+
+
 def cmd_usage(a) -> int:
     from graphsnip import router, usage
 
@@ -355,6 +384,11 @@ def main(argv=None) -> int:
     sp.add_argument("task")
     sp.add_argument("--client", default="claude", choices=["claude", "copilot", "codex"])
     sp.add_argument("--running", choices=["light", "standard", "heavy", "session"], help="tier you are actually running on, if known")
+    sp = add("codex", cmd_codex, "route a task and run it with `codex exec -m <model for the chosen tier>`")
+    sp.add_argument("task", nargs="+")
+    sp.add_argument("--tier", choices=["light", "standard", "heavy"], help="force a tier instead of the router's pick")
+    sp.add_argument("--dry-run", action="store_true", help="print the codex command, do not run it")
+    sp.add_argument("--extra", nargs="*", default=[], help="extra args passed to codex exec")
     sp = add("usage", cmd_usage, "measured model mix from Claude Code transcripts")
     sp.add_argument("--since", help="ISO date, e.g. 2026-11-01 (default: all history)")
     sp.add_argument("--all", action="store_true", help="all history (default)")
