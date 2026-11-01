@@ -65,6 +65,17 @@ Graphify's bare `query` is cheaper still (about 13k and 18k tokens across the ei
 
 Reproduce: `graphsnip bench` (tasks live in `.graphsnip/tasks.json`; replace them with your own questions).
 
+## Model routing (estimate, with a verified part)
+
+graphsnip cannot switch your agent's model by itself; an MCP server has no such power. What it does:
+
+1. **Decides.** `gs_route` / `graphsnip route "task"` scores a task from its wording and from graph size (files and tokens a context pack needs) into `light`, `standard` or `heavy`, and says why.
+2. **Steers.** `/graphsnip` is pinned to the light model (Claude Code: `model: haiku`; Copilot: set `routing.models.copilot.light`). If the router says the task is too hard it answers `ESCALATE` and tells you to use `/graphsnip-deep`, which runs on your session's own model. Codex prompts cannot pin a model, so Codex routing is advisory only.
+3. **Accounts.** Every decision is logged with its status: `routed` (the running tier matched), `escalate`, `overpowered`, `session`, or `advisory` (nobody verified which model ran). Dollars saved are credited **only for `routed`**; advisory decisions show as "potential".
+4. **Measures** (Claude Code only). `graphsnip usage` reads `~/.claude/projects/.../*.jsonl` to show which models actually produced replies and their token usage. This is the check on the estimate.
+
+Routing saves **dollars per token, not tokens**; the token savings above come from the graph alone. Prices are editable placeholders in `.graphsnip/config.json` under `routing.prices`. The running tier passed by the slash command is self-reported by the command text, so treat "routed" as "routed as designed", and use `graphsnip usage` for ground truth.
+
 ## Install
 
 ```bash

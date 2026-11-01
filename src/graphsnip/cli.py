@@ -92,6 +92,34 @@ def cmd_stats(a) -> int:
             print(f"    {tool:<8} {t['calls']:>4} calls  {t['returned']:>9,} vs {t['baseline']:>10,}")
         if s["hooks"]:
             print("  hooks: " + ", ".join(f"{k} ×{v}" for k, v in s["hooks"].items()))
+    from graphsnip import router
+
+    rs = router.summarize(recs, router.config(p))
+    if rs["decisions"]:
+        print(f"\nRouting\n  {rs['decisions']} decisions · tiers {rs['by_tier']} · status {rs['by_status']}")
+        print(f"  routed (verified match): {rs['routed']} · on a cheaper tier: {rs['routed_cheaper']} ({rs['tokens_on_cheaper']:,} tokens)")
+        print(f"  est. dollars saved by routing: ${rs['usd_saved']} (+ ${rs['usd_potential']} potential from advisory-only decisions)")
+    return 0
+
+
+def cmd_route(a) -> int:
+    r = Engine(a.root, source="cli").route(a.task, client=a.client, running_tier=a.running)
+    print(r.text)
+    return 0
+
+
+def cmd_usage(a) -> int:
+    from graphsnip import router, usage
+
+    p = Project(a.root)
+    u = usage.scan(p.root, router.config(p))
+    if not u:
+        print(f"No Claude Code transcripts found for this project ({usage.transcripts_dir(p.root)}).")
+        return 1
+    print(f"Measured model mix from Claude Code transcripts ({u['dir']})")
+    for name, row in sorted(u["families"].items(), key=lambda kv: -kv[1]["usd"]):
+        print(f"  {name:<7} {row['messages']:>5} replies  in {row['input']:>10,}  out {row['output']:>9,}  cache-read {row['cache_read']:>11,}  ≈ ${row['usd']}")
+    print(f"  total ≈ ${u['usd_total']} (estimate from routing.prices in .graphsnip/config.json)")
     return 0
 
 
@@ -322,6 +350,11 @@ def main(argv=None) -> int:
     sp.add_argument("--quiet", action="store_true")
     sp = add("stats", cmd_stats, "token savings so far")
     sp.add_argument("--json", action="store_true")
+    sp = add("route", cmd_route, "which model tier does this task need? (logs the decision)")
+    sp.add_argument("task")
+    sp.add_argument("--client", default="claude", choices=["claude", "copilot", "codex"])
+    sp.add_argument("--running", choices=["light", "standard", "heavy", "session"], help="tier you are actually running on, if known")
+    sp = add("usage", cmd_usage, "measured model mix from Claude Code transcripts")
     sp = add("report", cmd_report, "write the HTML dashboard")
     sp.add_argument("--open", action="store_true")
     sp.add_argument("--bundle", metavar="DIR", help="write a self-contained folder (dashboard + graph.html) for sharing")

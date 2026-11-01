@@ -66,6 +66,15 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
     },
     {
+        "name": "gs_route",
+        "description": "Decide which model tier (light/standard/heavy) a task needs, from its wording and the graph. Call first in "
+                       "/graphsnip commands. Pass running_tier if you know which tier you are running on "
+                       "(light, standard, heavy, or session for 'whatever this session uses').",
+        "inputSchema": {"type": "object", "properties": {
+            "task": {"type": "string"}, "running_tier": {"type": "string", "enum": ["light", "standard", "heavy", "session"]},
+            "client": {"type": "string", "default": "claude"}}, "required": ["task"]},
+    },
+    {
         "name": "gs_savings",
         "description": "Show tokens saved so far in this project, versus a grep-and-read baseline.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -85,6 +94,9 @@ def _call(engine: Engine, name: str, args: dict) -> tuple[str, bool]:
         r = engine.impact(str(args.get("name", "")), depth=int(args.get("depth", 2)))
     elif name == "gs_outline":
         r = engine.outline(str(args.get("path", "")))
+    elif name == "gs_route":
+        r = engine.route(str(args.get("task", "")), client=str(args.get("client", "claude")),
+                         running_tier=args.get("running_tier"))
     elif name == "gs_savings":
         r = engine.savings()
     else:

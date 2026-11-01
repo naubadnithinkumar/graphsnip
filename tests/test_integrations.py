@@ -152,6 +152,9 @@ def test_slash_commands_installed_and_removed(tmp_path, monkeypatch):
     copilot = (repo / ".github" / "prompts" / "graphsnip.prompt.md").read_text()
     codex = (codex_home / "prompts" / "graphsnip.md").read_text()
     assert "$ARGUMENTS" in claude and "mcp__graphsnip__gs_pack" in claude and "cg_" not in claude
+    assert "model: haiku" in claude and "ESCALATE" in claude
+    deep = (repo / ".claude" / "commands" / "graphsnip-deep.md").read_text()
+    assert "model:" not in deep and 'running_tier = "session"' in deep
     assert "name: graphsnip" in copilot and "graphsnip/*" in copilot
     assert "$ARGUMENTS" in codex and codex.startswith("---")
     assert "mcp__graphsnip__gs_pack" in (repo / ".claude" / "agents" / "graphsnip-explorer.md").read_text()
@@ -171,3 +174,33 @@ def test_slash_command_never_clobbers_foreign_file(tmp_path):
     except RuntimeError:
         raised = True
     assert raised and f.read_text() == "my own command"
+
+
+def test_router_decisions_and_accounting():
+    from graphsnip import router
+
+    cfg = router.DEFAULTS
+    assert router.decide("where is dispatch_request defined", cfg=cfg).tier == "light"
+    assert router.decide("refactor the auth module and migrate sessions", pack_files=7, pack_tokens=3500, cfg=cfg).tier == "heavy"
+    assert router.status_of("light", "light") == "routed"
+    assert router.status_of("heavy", "light") == "escalate"
+    assert router.status_of("light", None) == "advisory"
+    r = router.decide("where is x defined", cfg=cfg)
+    routed = router.account(cfg, r, "routed")
+    assert routed["usd_saved"] > 0 and router.account(cfg, r, "advisory")["usd_saved"] == 0
+    assert router.account(cfg, r, "escalate")["usd_saved"] == 0  # no credit for work that needed a stronger model
+
+
+def test_usage_scan_reads_transcripts(tmp_path):
+    import json as _j
+    from graphsnip import router, usage
+
+    d = tmp_path / "t"
+    d.mkdir()
+    rows = [{"requestId": "r1", "message": {"id": "m1", "model": "claude-haiku-x", "usage": {"input_tokens": 1000, "output_tokens": 200}}},
+            {"requestId": "r1", "message": {"id": "m1", "model": "claude-haiku-x", "usage": {"input_tokens": 1000, "output_tokens": 200}}},  # duplicate
+            {"requestId": "r2", "message": {"id": "m2", "model": "claude-opus-x", "usage": {"input_tokens": 500, "output_tokens": 100, "cache_read_input_tokens": 9000}}}]
+    (d / "s.jsonl").write_text("\n".join(_j.dumps(x) for x in rows))
+    u = usage.scan(tmp_path, router.DEFAULTS, directory=d)
+    assert u["families"]["haiku"]["messages"] == 1 and u["families"]["opus"]["cache_read"] == 9000
+    assert u["usd_total"] > 0

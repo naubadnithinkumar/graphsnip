@@ -117,6 +117,40 @@ footer{color:var(--mut);font-size:12.5px;margin-top:26px}
 """
 
 
+def _routing_card(project: Project, recs: list[dict], price: float) -> str:
+    from graphsnip import router, usage
+
+    cfg = router.config(project)
+    rs = router.summarize(recs, cfg)
+    u = usage.scan(project.root, cfg)
+    if not rs["decisions"] and not u:
+        return ('<section class="card"><h2>Model routing</h2><p class="sub">No routing decisions yet. Use <code>/graphsnip</code> in your agent '
+                '(or <code>graphsnip route "your task"</code>) and this section fills in.</p></section>')
+    kp = "".join([
+        _kpi("Routing decisions", n(rs["decisions"]), " · ".join(f"{k} {v}" for k, v in rs["by_tier"].items() if v) or "-"),
+        _kpi("Routed to a cheaper model", n(rs["routed_cheaper"]), f"{n(rs['tokens_on_cheaper'])} tokens handled by the light tier"),
+        _kpi("Est. dollars saved by routing", f"${rs['usd_saved']:.4f}", f"vs running everything on the {cfg['baseline_tier']} tier", accent=True),
+        _kpi("Escalations", n(rs["escalations"]), "tasks too hard for the pinned light model"),
+    ])
+    srows = "".join(f"<tr><td>{e(k)}</td><td class='r'>{v}</td></tr>" for k, v in sorted(rs["by_status"].items()))
+    rec = "".join(f"<tr><td>{e(r.get('tier',''))}</td><td>{e(r.get('status',''))}</td><td>{e(str(r.get('query',''))[:60])}</td>"
+                  f"<td class='r'>${float(r.get('usd_saved', 0)):.4f}</td></tr>" for r in rs["recent"])
+    meas = ""
+    if u:
+        mrows = "".join(f"<tr><td>{e(k)}</td><td class='r'>{n(v['messages'])}</td><td class='r'>{n(v['input'])}</td><td class='r'>{n(v['output'])}</td>"
+                        f"<td class='r'>${v['usd']:.2f}</td></tr>" for k, v in sorted(u["families"].items(), key=lambda kv: -kv[1]["usd"]))
+        meas = (f'<h2 style="font-size:15px;margin-top:14px">Measured: which model actually ran (Claude Code transcripts)</h2>'
+                f'<table><thead><tr><th>Model</th><th class="r">Replies</th><th class="r">Input</th><th class="r">Output</th><th class="r">≈ Cost</th></tr></thead>'
+                f'<tbody>{mrows}</tbody></table>')
+    return (f'<section class="card"><h2>Model routing</h2><div class="sub">graphsnip scores each task (wording + graph size) and steers it to the cheapest tier that can do it. '
+            f'Dollars are estimates from the editable price table; savings are counted only when the running model matched the decision.</div>'
+            f'<div class="grid4" style="margin-top:10px">{kp}</div>'
+            f'<div class="two"><div><table><thead><tr><th>Status</th><th class="r">Count</th></tr></thead><tbody>{srows}</tbody></table>'
+            f'<p class="sub">routed = verified match · advisory = decision only (potential ${rs["usd_potential"]:.4f}) · escalate = needed a stronger model</p></div>'
+            f'<div><table><thead><tr><th>Tier</th><th>Status</th><th>Task</th><th class="r">Saved</th></tr></thead><tbody>{rec}</tbody></table></div></div>'
+            f'{meas}</section>')
+
+
 def build_html(project: Project, graph_href: str) -> str:
     cfg = project.config()
     price = float(cfg.get("price_per_mtok", 3.0))
@@ -232,6 +266,7 @@ def build_html(project: Project, graph_href: str) -> str:
         f'<tbody>{hub_rows}</tbody></table></div>'
         f'<div><h2 style="font-size:15px">Index</h2><p class="sub">Languages: {langs or "-"}</p>'
         f'<p class="sub">Built by Graphify (tree-sitter AST, no LLM, nothing left this machine). Report: <code>graphify-out/GRAPH_REPORT.md</code></p></div></div></section>')
+    sections.append(_routing_card(project, recs, price))
     sections.append(graph_card)
 
     sections.append(

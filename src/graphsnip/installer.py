@@ -56,23 +56,28 @@ You explore a codebase through the graphsnip tools and report back briefly.
 
 
 # ---------------------------------------------------------------- slash command (/graphsnip)
-def _command_body(args_token: str, tool_prefix: str = "") -> str:
+def _command_body(args_token: str, running: str | None, client: str, deep: bool = False) -> str:
     """Instructions behind /graphsnip. `args_token` is the client's placeholder for what the user typed after the command."""
-    t = tool_prefix
+    route_args = f'task = the request, client = "{client}"' + (f', running_tier = "{running}"' if running else "")
+    escalate = ("" if deep else
+                "   - If the result says ESCALATE, stop and tell the user to re-run the request with `/graphsnip-deep`. Do nothing else.\n")
     return f"""Use the graphsnip code graph (Graphify under the hood) to answer from exact code instead of reading whole files.
 
 Request: {args_token}
 
-Pick the first row that fits the request above:
+Step 1. Call `gs_route` ({route_args}) once, for the request as a whole.
+{escalate}   - Otherwise continue.
+
+Step 2. Pick the first row that fits the request:
 
 | Request looks like | Do this |
 |---|---|
-| empty, or "savings" / "stats" | call `{t}gs_savings` and report tokens saved, % saved and the call count |
-| "symbol NAME" | call `{t}gs_symbol` with NAME |
-| "impact NAME" or "what breaks if I change NAME" | call `{t}gs_impact` with NAME, then `{t}gs_symbol` on the top dependents if needed |
-| "outline PATH" | call `{t}gs_outline` with PATH |
-| "find ..." or "where is ..." | call `{t}gs_find` with the question |
-| anything else (a question or a task) | call `{t}gs_pack` with the request as the task, then answer from the returned code |
+| empty, or "savings" / "stats" | call `gs_savings` and report tokens saved, % saved and the call count |
+| "symbol NAME" | call `gs_symbol` with NAME |
+| "impact NAME" or "what breaks if I change NAME" | call `gs_impact` with NAME, then `gs_symbol` on the top dependents if needed |
+| "outline PATH" | call `gs_outline` with PATH |
+| "find ..." or "where is ..." | call `gs_find` with the question |
+| anything else (a question or a task) | call `gs_pack` with the request as the task, then answer from the returned code |
 
 Rules:
 - Answer from the returned code and `file:line` references. Read a file directly only if the graph has no match or you need a literal string, config or docs.
@@ -81,27 +86,31 @@ Rules:
 """
 
 
-CLAUDE_COMMAND = f"""---
-description: Answer a code question or task from the graphsnip code graph (exact code, token-budgeted)
-argument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings
-allowed-tools: mcp__graphsnip__gs_pack, mcp__graphsnip__gs_find, mcp__graphsnip__gs_symbol, mcp__graphsnip__gs_impact, mcp__graphsnip__gs_outline, mcp__graphsnip__gs_savings, Read
----
-{_command_body("$ARGUMENTS", "")}"""
+_DESC = "Answer a code question or task from the graphsnip code graph (exact code, token-budgeted)"
+_DESC_DEEP = "Same as /graphsnip but on your session's own model, for harder tasks (refactors, debugging, multi-file changes)"
+_TOOLS = ", ".join(f"mcp__graphsnip__gs_{t}" for t in ("route", "pack", "find", "symbol", "impact", "outline", "savings"))
 
-COPILOT_PROMPT = f"""---
-name: graphsnip
-description: Answer a code question or task from the graphsnip code graph (exact code, token-budgeted)
-argument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings
-agent: agent
-tools: ['graphsnip/*']
----
-{_command_body("the text the user typed after /graphsnip (if none, treat it as empty)", "")}"""
 
-CODEX_PROMPT = f"""---
-description: Answer a code question or task from the graphsnip code graph (exact code, token-budgeted)
-argument-hint: <question or task>
----
-{_command_body("$ARGUMENTS", "")}"""
+def claude_command(light_model: str | None, deep: bool = False) -> str:
+    model = "" if deep or not light_model else f"model: {light_model}\n"
+    return (f"---\ndescription: {_DESC_DEEP if deep else _DESC}\nargument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings\n"
+            f"allowed-tools: {_TOOLS}, Read\n{model}---\n"
+            + _command_body("$ARGUMENTS", "session" if deep else ("light" if light_model else None), "claude", deep))
+
+
+def copilot_prompt(light_model: str | None, deep: bool = False) -> str:
+    name = "graphsnip-deep" if deep else "graphsnip"
+    model = "" if deep or not light_model else f"model: {light_model}\n"
+    return (f"---\nname: {name}\ndescription: {_DESC_DEEP if deep else _DESC}\nargument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings\n"
+            f"agent: agent\ntools: ['graphsnip/*']\n{model}---\n"
+            + _command_body("the text the user typed after the command (if none, treat it as empty)",
+                            "session" if deep else ("light" if light_model else None), "copilot", deep))
+
+
+def codex_prompt() -> str:
+    # Codex prompts cannot pin a model, so routing there is advisory only.
+    return f"---\ndescription: {_DESC}\nargument-hint: <question or task>\n---\n" + _command_body("$ARGUMENTS", None, "codex")
+
 
 CMD_MARK = "Use the graphsnip code graph (Graphify under the hood)"
 
@@ -193,6 +202,12 @@ def _remove_owned(path: Path) -> bool:
     return False
 
 
+def _light_model(root: Path, client: str) -> str | None:
+    from graphsnip import router
+
+    return (router.config(Project(root))["models"].get(client) or {}).get("light") or None
+
+
 def _codex_prompt_path() -> Path:
     home = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
     return home / "prompts" / "graphsnip.md"
@@ -225,7 +240,11 @@ def _claude(root: Path, plan: Plan, allow_tools: bool, strict: bool) -> None:
              "add PreToolUse hook (Read|Grep|Bash)" + (" + allow graphsnip tools" if allow_tools else ""), settings)
     plan.add(root / "CLAUDE.md", "add graphsnip guidance block", lambda: _upsert_block(root / "CLAUDE.md", GUIDE, BEGIN, END))
     cpath = root / ".claude" / "commands" / "graphsnip.md"
-    plan.add(cpath, "add /graphsnip slash command", lambda: _write_owned(cpath, CLAUDE_COMMAND))
+    lm = _light_model(root, "claude")
+    dpath = root / ".claude" / "commands" / "graphsnip-deep.md"
+    plan.add(cpath, f"add /graphsnip slash command (pinned to model '{lm}')" if lm else "add /graphsnip slash command",
+             lambda: _write_owned(cpath, claude_command(lm)))
+    plan.add(dpath, "add /graphsnip-deep (session model, for hard tasks)", lambda: _write_owned(dpath, claude_command(lm, deep=True)))
     plan.add(root / ".claude" / "agents" / "graphsnip-explorer.md", "add cheap read-only explorer subagent (Haiku)",
              lambda: (root / ".claude" / "agents").mkdir(parents=True, exist_ok=True) or
              (root / ".claude" / "agents" / "graphsnip-explorer.md").write_text(EXPLORER_AGENT, encoding="utf-8"))
@@ -244,7 +263,11 @@ def _copilot(root: Path, plan: Plan) -> None:
     plan.add(root / ".github" / "copilot-instructions.md", "add graphsnip guidance block",
              lambda: _upsert_block(root / ".github" / "copilot-instructions.md", GUIDE, BEGIN, END))
     ppath = root / ".github" / "prompts" / "graphsnip.prompt.md"
-    plan.add(ppath, "add /graphsnip prompt file (VS Code Copilot chat)", lambda: _write_owned(ppath, COPILOT_PROMPT))
+    lm = _light_model(root, "copilot")
+    dpath = root / ".github" / "prompts" / "graphsnip-deep.prompt.md"
+    plan.add(ppath, "add /graphsnip prompt file (VS Code Copilot chat)" + (f", pinned to model '{lm}'" if lm else " (set routing.models.copilot.light to pin a model)"),
+             lambda: _write_owned(ppath, copilot_prompt(lm)))
+    plan.add(dpath, "add /graphsnip-deep prompt file", lambda: _write_owned(dpath, copilot_prompt(lm, deep=True)))
 
 
 def _toml_block(cmd: str, args: list[str]) -> str:
@@ -266,7 +289,7 @@ def _codex(root: Path, plan: Plan, scope: str) -> None:
     # Codex only loads custom prompts from $CODEX_HOME/prompts (default ~/.codex/prompts), never from the repo.
     xpath = _codex_prompt_path()
     plan.add(xpath, "add /prompts:graphsnip custom prompt (Codex reads prompts from your home dir; restart Codex)",
-             lambda: _write_owned(xpath, CODEX_PROMPT))
+             lambda: _write_owned(xpath, codex_prompt()))
 
 
 def _gitignore(root: Path, plan: Plan) -> None:
@@ -349,8 +372,9 @@ def uninstall(root: str, clients: list[str], codex_scope: str = "project") -> li
             _save_json(p, d)
         if _remove_block(r / "CLAUDE.md", BEGIN, END):
             out.append("removed block from CLAUDE.md")
-        if _remove_owned(r / ".claude" / "commands" / "graphsnip.md"):
-            out.append("removed /graphsnip slash command")
+        for nm in ("graphsnip", "graphsnip-deep"):
+            if _remove_owned(r / ".claude" / "commands" / f"{nm}.md"):
+                out.append(f"removed /{nm} slash command")
         a = r / ".claude" / "agents" / "graphsnip-explorer.md"
         if a.exists():
             a.unlink()
@@ -364,8 +388,9 @@ def uninstall(root: str, clients: list[str], codex_scope: str = "project") -> li
                 out.append("removed MCP server from .vscode/mcp.json")
         if _remove_block(r / ".github" / "copilot-instructions.md", BEGIN, END):
             out.append("removed block from .github/copilot-instructions.md")
-        if _remove_owned(r / ".github" / "prompts" / "graphsnip.prompt.md"):
-            out.append("removed /graphsnip prompt file")
+        for nm in ("graphsnip", "graphsnip-deep"):
+            if _remove_owned(r / ".github" / "prompts" / f"{nm}.prompt.md"):
+                out.append(f"removed /{nm} prompt file")
     if "codex" in chosen:
         cfg = (Path.home() / ".codex" / "config.toml") if codex_scope == "user" else (r / ".codex" / "config.toml")
         if _remove_block(cfg, TOML_BEGIN, TOML_END):
