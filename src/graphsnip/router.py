@@ -60,6 +60,7 @@ class Route:
 
 def decide(task: str, pack_files: int = 0, pack_tokens: int = 0, pack_budget: int = 4000, cfg: dict | None = None) -> Route:
     score, why = 0, []
+    lookup_only = not _HEAVY.search(task) and bool(_LIGHT.search(task))
     if _HEAVY.search(task):
         score += 3
         why.append(f"change/diagnosis wording ('{_HEAVY.search(task).group(0).lower()}') +3")
@@ -72,15 +73,22 @@ def decide(task: str, pack_files: int = 0, pack_tokens: int = 0, pack_budget: in
     if len(task.split()) > 40:
         score += 1
         why.append("long request +1")
+    gpts, gwhy = 0, []
     if pack_files >= 6:
-        score += 2
-        why.append(f"graph: {pack_files} files involved +2")
+        gpts += 2
+        gwhy.append(f"graph: {pack_files} files involved +2")
     elif pack_files >= 3:
-        score += 1
-        why.append(f"graph: {pack_files} files involved +1")
+        gpts += 1
+        gwhy.append(f"graph: {pack_files} files involved +1")
     if pack_tokens >= 0.8 * pack_budget:
-        score += 1
-        why.append(f"graph: large context needed ({pack_tokens:,} tokens) +1")
+        gpts += 1
+        gwhy.append(f"graph: large context needed ({pack_tokens:,} tokens) +1")
+    if lookup_only and gpts > 1:
+        # a "where/find/explain" question naturally touches many files; that alone does not make it hard
+        gwhy.append(f"graph size capped at +1 for a lookup question (was +{gpts})")
+        gpts = 1
+    score += gpts
+    why += gwhy
     tier = "light" if score <= 0 else "heavy" if score >= 4 else "standard"
     cfg = cfg or DEFAULTS
     return Route(tier=tier, score=score, reasons=why or ["no strong signal"], files=pack_files,
@@ -105,7 +113,7 @@ def account(cfg: dict, route: Route, status: str) -> dict:
     delta = round(base - chosen, 6)  # negative when the task needed a pricier model than the baseline
     return {"usd_baseline": round(base, 6), "usd_routed": round(chosen, 6),
             "usd_saved": delta if status == "routed" else 0.0,
-            "usd_potential": delta if status == "advisory" else 0.0}
+            "usd_potential": delta if status in ("advisory", "session") else 0.0}
 
 
 def summarize(records: list[dict], cfg: dict) -> dict:
@@ -125,7 +133,7 @@ def summarize(records: list[dict], cfg: dict) -> dict:
         "routed_cheaper": len(cheaper),
         "tokens_on_cheaper": sum(int(r.get("tokens_in", 0)) + int(r.get("tokens_out", 0)) for r in cheaper),
         "usd_saved": round(sum(float(r.get("usd_saved", 0)) for r in routed), 4),
-        "usd_potential": round(sum(float(r.get("usd_potential", 0)) for r in rows if r.get("status") == "advisory"), 4),
+        "usd_potential": round(sum(float(r.get("usd_potential", 0)) for r in rows if r.get("status") in ("advisory", "session")), 4),
         "escalations": by_status.get("escalate", 0),
         "recent": list(reversed(rows[-8:])),
     }

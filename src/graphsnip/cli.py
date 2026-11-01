@@ -112,14 +112,15 @@ def cmd_usage(a) -> int:
     from graphsnip import router, usage
 
     p = Project(a.root)
-    u = usage.scan(p.root, router.config(p))
+    u = usage.scan(p.root, router.config(p), since=None if a.all else a.since)
     if not u:
         print(f"No Claude Code transcripts found for this project ({usage.transcripts_dir(p.root)}).")
         return 1
     print(f"Measured model mix from Claude Code transcripts ({u['dir']})")
     for name, row in sorted(u["families"].items(), key=lambda kv: -kv[1]["usd"]):
         print(f"  {name:<7} {row['messages']:>5} replies  in {row['input']:>10,}  out {row['output']:>9,}  cache-read {row['cache_read']:>11,}  ≈ ${row['usd']}")
-    print(f"  total ≈ ${u['usd_total']} (estimate from routing.prices in .graphsnip/config.json)")
+    print(f"  window: {u['first']} .. {u['last']}")
+    print(f"  total ≈ ${u['usd_total']} list-price equivalent (not your bill; from routing.prices in .graphsnip/config.json)")
     return 0
 
 
@@ -355,6 +356,8 @@ def main(argv=None) -> int:
     sp.add_argument("--client", default="claude", choices=["claude", "copilot", "codex"])
     sp.add_argument("--running", choices=["light", "standard", "heavy", "session"], help="tier you are actually running on, if known")
     sp = add("usage", cmd_usage, "measured model mix from Claude Code transcripts")
+    sp.add_argument("--since", help="ISO date, e.g. 2026-11-01 (default: all history)")
+    sp.add_argument("--all", action="store_true", help="all history (default)")
     sp = add("report", cmd_report, "write the HTML dashboard")
     sp.add_argument("--open", action="store_true")
     sp.add_argument("--bundle", metavar="DIR", help="write a self-contained folder (dashboard + graph.html) for sharing")

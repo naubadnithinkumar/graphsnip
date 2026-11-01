@@ -26,11 +26,12 @@ def family(model: str) -> str:
     return "other"
 
 
-def scan(root: Path, cfg: dict, directory: Path | None = None) -> dict | None:
+def scan(root: Path, cfg: dict, directory: Path | None = None, since: str | None = None) -> dict | None:
     d = directory or transcripts_dir(root)
     if not d.is_dir():
         return None
     seen: set = set()
+    first = last = None
     fam: dict[str, dict] = {}
     for f in d.glob("*.jsonl"):
         try:
@@ -42,6 +43,8 @@ def scan(root: Path, cfg: dict, directory: Path | None = None) -> dict | None:
                 rec = json.loads(ln)
             except Exception:
                 continue
+            if since and str(rec.get("timestamp", "")) < since:
+                continue
             msg = rec.get("message") if isinstance(rec, dict) else None
             if not isinstance(msg, dict) or not msg.get("model") or not isinstance(msg.get("usage"), dict):
                 continue
@@ -51,6 +54,9 @@ def scan(root: Path, cfg: dict, directory: Path | None = None) -> dict | None:
                     continue  # streamed replies are logged more than once
                 seen.add(key)
             u = msg["usage"]
+            ts = str(rec.get("timestamp", ""))
+            if ts:
+                first, last = min(first or ts, ts), max(last or ts, ts)
             row = fam.setdefault(family(msg["model"]), {"messages": 0, "input": 0, "output": 0, "cache_read": 0})
             row["messages"] += 1
             row["input"] += int(u.get("input_tokens", 0)) + int(u.get("cache_creation_input_tokens", 0))
@@ -64,4 +70,4 @@ def scan(root: Path, cfg: dict, directory: Path | None = None) -> dict | None:
         pin, pout = cfg["prices"][tier]
         row["usd"] = round((row["input"] * pin + row["output"] * pout + row["cache_read"] * pin * 0.1) / 1_000_000, 4)
         total += row["usd"]
-    return {"families": fam, "usd_total": round(total, 4), "dir": str(d)}
+    return {"families": fam, "usd_total": round(total, 4), "dir": str(d), "first": first, "last": last, "since": since}
