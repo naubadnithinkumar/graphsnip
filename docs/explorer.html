@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>graphsnip explorer</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#121826;--mut:#5b6577;--line:#e3e6ec;--brand:#0f766e;--brand2:#14b8a6;--grep:#94a3b8;--gfy:#60a5fa;--gfyread:#6366f1;--cg:#0f766e;--warn:#b45309}
+:root:not([data-theme="light"]){}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0f17;--card:#121826;--ink:#e8ecf4;--mut:#93a0b6;--line:#243049;--brand:#2dd4bf;--brand2:#5eead4;--grep:#64748b;--gfy:#60a5fa;--gfyread:#818cf8;--cg:#2dd4bf;--warn:#fbbf24}}
+:root[data-theme="dark"]{--bg:#0b0f17;--card:#121826;--ink:#e8ecf4;--mut:#93a0b6;--line:#243049;--brand:#2dd4bf;--brand2:#5eead4;--grep:#64748b;--gfy:#60a5fa;--gfyread:#818cf8;--cg:#2dd4bf;--warn:#fbbf24}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:28px;line-height:1.2;margin:0 0 6px}h2{font-size:18px;margin:0 0 6px}
+.lead{color:var(--mut);max-width:70ch;margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:18px}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
+.seg button{border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:9px;padding:7px 12px;font:inherit;font-size:13.5px;cursor:pointer}
+.seg button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.row{display:grid;grid-template-columns:170px 1fr 190px;gap:10px;align-items:center;margin:9px 0;font-size:14px}
+.bar{height:22px;border-radius:6px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;border-radius:6px;transition:width .35s}
+.num{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-weight:650}
+.row.sel>div:first-child{font-weight:700}.row.sel .bar{outline:2px solid var(--brand);outline-offset:2px}.tag{display:inline-block;font-size:12px;border-radius:6px;padding:1px 7px;margin-left:6px;background:color-mix(in srgb,var(--mut) 15%,transparent);color:var(--mut)}
+.tag.ok{background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--brand)}.tag.no{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.sl{display:grid;grid-template-columns:1fr auto;gap:2px 12px;margin:14px 0}.sl label{font-size:14px}.sl output{font-weight:700;font-variant-numeric:tabular-nums}
+.sl input{grid-column:1/3;width:100%;accent-color:var(--brand)}.sl small{grid-column:1/3;color:var(--mut);font-size:12.5px}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:6px 0 4px}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:14px 16px}.kpi.a{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border:none}
+.kpi .l{font-size:12px;text-transform:uppercase;letter-spacing:.04em;opacity:.85}.kpi .v{font-size:30px;font-weight:760;line-height:1.15}.kpi .s{font-size:12.5px;opacity:.85}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:820px){.two{grid-template-columns:1fr}.row{grid-template-columns:100px 1fr 150px;font-size:13px}}
+table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--mut);font-size:12px;text-transform:uppercase}td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.note{color:var(--mut);font-size:12.5px;margin-top:10px}.layer{display:grid;gap:8px}.layer div{border-left:3px solid var(--line);padding:2px 0 2px 12px}.layer b{color:var(--ink)}
+select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>See what Graphify gives you, and what graphsnip adds</h1>
+  <p class="lead">Pick a layer to see the tokens an agent puts in context for the same question, then move the sliders to estimate your own monthly numbers. Everything below starts from measured benchmark results, not guesses.</p>
+
+  <section class="card">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+      <h2>1 · Tokens per question, layer by layer</h2>
+      <label class="note" style="margin:0">Benchmark repo: <select id="repo"></select></label>
+    </div>
+    <div class="seg" id="layers"></div>
+    <div id="bars"></div>
+    <p class="note" id="layerNote"></p>
+  </section>
+
+  <section class="card">
+    <h2>2 · Your monthly estimate</h2>
+    <div class="two">
+      <div>
+        <div class="sl"><label for="q">Code questions per day</label><output id="qo"></output><input id="q" type="range" min="1" max="300" value="40"></div>
+        <div class="sl"><label for="d">Working days per month</label><output id="do"></output><input id="d" type="range" min="1" max="31" value="21"></div>
+        <div class="sl"><label for="p">Input price per million tokens</label><output id="po"></output><input id="p" type="range" min="0.25" max="15" step="0.25" value="3"><small>Use your model's real price. Output tokens and caching discounts are not modelled.</small></div>
+        <div class="sl"><label for="r">Share of questions the router sends to the light model</label><output id="ro"></output><input id="r" type="range" min="0" max="100" value="60"><small>Lookups and explanations can go to a cheaper model; refactors stay on the stronger one. Measure yours with <code>graphsnip report</code>.</small></div>
+        <div class="sl"><label for="l">Light model price as a share of your main model</label><output id="lo"></output><input id="l" type="range" min="5" max="100" value="33"></div>
+        <div class="sl"><label for="c">Advanced: times each result is re-sent as the chat continues</label><output id="co"></output><input id="c" type="range" min="1" max="20" value="1"><small>1 = counted once, the conservative default. In real sessions, results that stay in context are re-sent every turn, so the gap grows.</small></div>
+      </div>
+      <div>
+        <div class="big" style="grid-template-columns:1fr 1fr">
+          <div class="kpi a"><div class="l">Saved per month</div><div class="v" id="saved">-</div><div class="s" id="savedSub"></div></div>
+          <div class="kpi"><div class="l">Tokens kept out</div><div class="v" id="tok">-</div><div class="s" id="tokSub"></div></div>
+        </div>
+        <div id="cost" style="margin-top:14px"></div>
+        <p class="note">Routing dollars are an estimate from the price share you set; the token savings come from the graph and slicing alone.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="tasksCard">
+    <h2>3 · The measured questions</h2>
+    <div style="overflow:auto"><table><thead><tr><th>Question</th><th class="r">grep + read</th><th class="r">Graphify + read</th><th class="r">graphsnip</th><th class="r">Saved</th></tr></thead><tbody id="tasks"></tbody></table></div>
+    <p class="note">Tokens estimated as characters / 4. "Answered" means the expected symbol appears, and for graphsnip its source code too; all approaches found the symbols on these questions, so the difference is the cost, not the answer.</p>
+  </section>
+
+  <section class="card">
+    <h2>4 · Who does what</h2>
+    <div class="layer">
+      <div><b>Graphify</b> parses your code (tree-sitter, no LLM, runs locally) into a knowledge graph: symbols, calls, inheritance, communities, an interactive <code>graph.html</code>. Its query returns a map of where things are, without the source.</div>
+      <div><b>graphsnip</b> sits on top and returns the exact code of one symbol or a ranked, token-budgeted context pack, so the agent does not read whole files afterwards. It also suppresses repeats, adds hooks and slash commands for Claude Code, Copilot and Codex, and keeps an honest savings ledger.</div>
+      <div><b>Routing</b> sends light questions to a cheaper model tier and hands hard ones to a stronger one. It saves dollars per token, not tokens, and is only counted when the running model matched the decision.</div>
+    </div>
+  </section>
+  <p class="note">Numbers: Flask and Express public repositories, measured with <code>graphsnip bench</code>. Baseline = grep the question's terms, read the top 8 matching files in full. Your repository will differ.</p>
+</div>
+<script>
+var DATA = {"flask": {"name": "Flask (Python)", "totals": {"tasks": 8, "naive": 366565, "gfy": 13008, "gfyread": 164491, "gs": 17869}, "tasks": [{"q": "how does setupmethod work and what does it depend on", "n": 48493, "g": 25922, "s": 3752}, {"q": "what breaks if I change AppContext", "n": 62932, "g": 23628, "s": 1546}, {"q": "where is FlaskClient defined and where is it used", "n": 48649, "g": 30993, "s": 2237}, {"q": "how does get_db work and what does it depend on", "n": 20738, "g": 15525, "s": 3791}, {"q": "what breaks if I change SessionInterface", "n": 45816, "g": 22803, "s": 1603}, {"q": "where is FlaskGroup defined and where is it used", "n": 56918, "g": 32836, "s": 2070}, {"q": "how does JSONTag work and what does it depend on", "n": 36896, "g": 8174, "s": 2320}, {"q": "what breaks if I change render_template", "n": 46123, "g": 4610, "s": 550}]}, "express": {"name": "Express (JavaScript)", "totals": {"tasks": 8, "naive": 165832, "gfy": null, "gfyread": 58553, "gs": 8955}, "tasks": null}};
+var LAYERS = [
+ {k:"naive", name:"No graph (grep + read)", col:"var(--grep)", code:true, note:"What an agent does with no graph: grep the terms, read the top 8 matching files in full."},
+ {k:"gfy", name:"Graphify query alone", col:"var(--gfy)", code:false, note:"A map of where things are and how they connect. Cheap, but it contains no source code, so the agent still has to read files."},
+ {k:"gfyread", name:"Graphify + read files", col:"var(--gfyread)", code:true, note:"Graphify's map, then reading the whole files its top hits point to (3 files max)."},
+ {k:"gs", name:"graphsnip", col:"var(--cg)", code:true, note:"Exact code of the relevant symbols, ranked and budgeted, in the same step as the map."}
+];
+var repoSel=document.getElementById("repo"), layerBox=document.getElementById("layers");
+Object.keys(DATA).forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=DATA[k].name;repoSel.appendChild(o)});
+var state={repo:Object.keys(DATA)[0], layer:"gs"};
+function fmt(n){return Math.round(n).toLocaleString("en-US")}
+function usd(n){return "$"+(n>=100?Math.round(n).toLocaleString("en-US"):n.toFixed(2))}
+function perQ(rk,k){var t=DATA[rk].totals;var v={naive:t.naive,gfy:t.gfy,gfyread:t.gfyread,gs:t.gs}[k];return v==null?null:v/t.tasks}
+function drawLayers(){
+  layerBox.innerHTML="";
+  LAYERS.forEach(function(L){var b=document.createElement("button");b.textContent=L.name;b.className=state.layer===L.k?"on":"";b.onclick=function(){state.layer=L.k;drawLayers();drawBars()};layerBox.appendChild(b)});
+}
+function drawBars(){
+  var rk=state.repo, max=perQ(rk,"naive"), box=document.getElementById("bars"); box.innerHTML="";
+  var order=LAYERS.map(function(l){return l.k}), upto=order.indexOf(state.layer);
+  LAYERS.forEach(function(L,i){
+    var v=perQ(rk,L.k); if(v==null) return;
+    var row=document.createElement("div"); row.className="row"+(i===upto?" sel":"");
+    row.innerHTML='<div>'+L.name+'</div><div class="bar"><i style="width:'+Math.max(1.5,100*v/max)+'%;background:'+L.col+'"></i></div><div class="num">'+fmt(v)+'<span class="tag '+(L.code?"ok":"no")+'">'+(L.code?"has code":"no code")+'</span></div>';
+    box.appendChild(row);
+  });
+  var L=LAYERS.filter(function(x){return x.k===state.layer})[0], v=perQ(rk,L.k);
+  var pct=100*(1-v/max);
+  document.getElementById("layerNote").innerHTML="<b>"+L.name+":</b> "+L.note+(L.k==="naive"?"":" That is "+pct.toFixed(0)+"% fewer tokens per question than grep + read"+(L.code?"":", but without source code")+".");
+  var tb=document.getElementById("tasks"); tb.innerHTML="";
+  var tc=document.getElementById("tasksCard"); tc.style.display=DATA[rk].tasks?"":"none";
+  (DATA[rk].tasks||[]).forEach(function(t){var tr=document.createElement("tr");tr.innerHTML="<td>"+t.q+"</td><td class='r'>"+fmt(t.n)+"</td><td class='r'>"+fmt(t.g)+"</td><td class='r'>"+fmt(t.s)+"</td><td class='r'>"+Math.round(100*(1-t.s/t.n))+"%</td>";tb.appendChild(tr)});
+  calc();
+}
+function val(id){return parseFloat(document.getElementById(id).value)}
+function calc(){
+  var q=val("q"),d=val("d"),p=val("p"),r=val("r")/100,l=val("l")/100,c=val("c");
+  document.getElementById("qo").textContent=q;document.getElementById("do").textContent=d;document.getElementById("po").textContent="$"+p.toFixed(2);
+  document.getElementById("ro").textContent=Math.round(r*100)+"%";document.getElementById("lo").textContent=Math.round(l*100)+"%";document.getElementById("co").textContent=c+"×";
+  var rk=state.repo,n=q*d*c;
+  var tN=perQ(rk,"naive")*n, tG=perQ(rk,"gs")*n, tR=perQ(rk,"gfyread")*n;
+  var cN=tN/1e6*p, cR=tR/1e6*p, cG=tG/1e6*p;
+  var cGroute=cG*(1-r)+cG*r*l;               // share r of graphsnip tokens billed at the light price
+  var savedTok=tN-tG, savedUsd=cN-cGroute;
+  document.getElementById("saved").textContent=usd(savedUsd);
+  document.getElementById("savedSub").textContent="vs grep + read, graph + routing";
+  document.getElementById("tok").textContent=(savedTok/1e6).toFixed(2)+"M";
+  document.getElementById("tokSub").textContent=(tN/1e6).toFixed(2)+"M tokens → "+(tG/1e6).toFixed(2)+"M";
+  var items=[["grep + read",cN,"var(--grep)"],["Graphify + read",cR,"var(--gfyread)"],["graphsnip",cG,"var(--cg)"],["graphsnip + routing",cGroute,"var(--brand2)"]];
+  var mx=Math.max.apply(null,items.map(function(i){return i[1]})), box=document.getElementById("cost"); box.innerHTML='<div class="note" style="margin:0 0 4px">Estimated monthly input cost</div>';
+  items.forEach(function(i){var row=document.createElement("div");row.className="row";row.style.gridTemplateColumns="140px 1fr 80px";
+    row.innerHTML='<div>'+i[0]+'</div><div class="bar"><i style="width:'+Math.max(1.2,100*i[1]/mx)+'%;background:'+i[2]+'"></i></div><div class="num">'+usd(i[1])+'</div>';box.appendChild(row)});
+}
+repoSel.onchange=function(){state.repo=repoSel.value;drawBars()};
+["q","d","p","r","l","c"].forEach(function(id){document.getElementById(id).oninput=calc});
+drawLayers();drawBars();
+</script>
+</body>
+</html>

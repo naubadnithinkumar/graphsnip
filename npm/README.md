@@ -1,83 +1,183 @@
+<div align="center">
+
 # graphsnip
 
-**A token-saving layer on top of [Graphify](https://github.com/Graphify-Labs/graphify).**
+**Give your coding agent the exact code it needs, not whole files, and prove the savings.**
 
-Graphify turns a codebase into a knowledge graph (tree-sitter, no LLM, runs locally). graphsnip uses that graph to give coding agents *exactly the code they need* instead of whole files, and then **proves the savings** with an honest baseline and a dashboard you can put on a projector.
+A token-saving layer on top of [Graphify](https://github.com/Graphify-Labs/graphify) for **Claude Code**, **GitHub Copilot** and **Codex**.
 
-Works with **Claude Code**, **GitHub Copilot** (VS Code / CLI) and **Codex**.
+![License](https://img.shields.io/badge/license-Apache--2.0-0f766e)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)
+![Clients](https://img.shields.io/badge/Claude%20Code%20%C2%B7%20Copilot%20%C2%B7%20Codex-supported-6366f1)
+![Built on](https://img.shields.io/badge/built%20on-Graphify-14b8a6)
 
-```
-        your repo ──► Graphify (AST → graph.json, graph.html, communities)
-                          │
-                          ▼
-   ┌───────────────────── graphsnip ─────────────────────┐
-   │  symbol slicer  ·  context packs  ·  session dedupe  │
-   │  budgeted tools ·  hooks          ·  shell compressor│
-   │  savings ledger (honest baseline) ·  dashboard       │
-   └──────────────┬───────────────────────────┬──────────┘
-                  ▼                           ▼
-     MCP server (gs_pack, gs_symbol, …)    .graphsnip/dashboard.html
-     Claude Code · Copilot · Codex         (+ Graphify's graph.html embedded)
-```
+<br>
 
-## Demo in three commands
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/dashboard-overview.png" alt="graphsnip dashboard: tokens saved, reduction, per-call chart" width="900">
+
+<sub>The dashboard <code>graphsnip report</code> writes. Real data from the Flask codebase.</sub>
+
+</div>
+
+---
+
+## At a glance
+
+| | Without a graph | Graphify alone | **Graphify + graphsnip** |
+|---|---|---|---|
+| What the agent receives | whole files from grep | a map, **no source code** | **the exact code**, ranked and budgeted |
+| Tokens for 8 Flask questions | 366,565 | 13,008 (then it must read files) | **17,869** |
+| Tokens vs grep + read | baseline | −96% (map only) | **−95%, with code** |
+| Questions answered with source | 8 / 8 | symbol named, no code | **8 / 8** |
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/benchmark.svg" alt="Tokens per approach on Flask and Express" width="860">
+</div>
+
+Graphify is excellent at telling an agent *where* things are. graphsnip adds the step after: *hand over just that code*, stop re-sending code the agent already has, and measure what it saved. Baseline here is deliberately realistic: **grep the question's terms and read the top 8 matching files in full**. It is far less than "read the whole repo".
+
+## Try it
+
+**Interactive explorer.** Pick a layer, move the sliders (questions per day, price per million tokens, how many questions go to a cheap model) and watch the monthly numbers change. Starts from the measured Flask and Express results.
+
+- Open [`docs/explorer.html`](docs/explorer.html) in a browser (download it, it is one self-contained file), or
+- publish it for your team with GitHub Pages: *Settings → Pages → Deploy from branch → `main` / `docs`*, then visit `https://naubadnithin7.github.io/codegraf/explorer.html`.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/explorer.png" alt="Interactive explorer with layer toggles and sliders" width="760">
+</div>
+
+## Quick start
 
 ```bash
-pipx install graphsnip          # or: uvx graphsnip …   (see "Install")
+pipx install graphsnip            # or: pipx install git+https://github.com/naubadnithin7/codegraf
 cd your-repo
-graphsnip demo --open           # graph → benchmark → dashboard
+graphsnip init                    # build graph, wire up Claude Code / Copilot / Codex, write the dashboard
+graphsnip report --open           # savings dashboard (grows as agents use it)
 ```
 
-Then wire it into your agents and watch live savings land in the same dashboard:
+No LLM key needed. Everything runs locally: Graphify parses with tree-sitter, graphsnip slices with tree-sitter.
 
-```bash
-graphsnip init                  # graph + MCP + hooks + guidance for claude, copilot, codex
-graphsnip report --open         # refresh the dashboard from real agent usage
+Want a one-command demo on any repo? `graphsnip demo --open` builds the graph, runs a benchmark and opens the dashboard.
+
+## What you get
+
+| | |
+|---|---|
+| **Exact symbol, not the file** | `gs_symbol` returns one function or class with its callers and callees. Docstrings trimmed, big classes shown as skeletons. |
+| **Context packs** | `gs_pack` bundles the ranked code for a whole task under a token budget in one call. |
+| **No repeats** | Code the agent already has in this session comes back as a one-line pointer. |
+| **Slash commands** | `/graphsnip <question>` in Claude Code and Copilot Chat, `/prompts:graphsnip` in Codex. |
+| **Model routing** | Light questions go to a cheaper model, hard ones are handed to a stronger one. Counted only when it really happened. |
+| **Hooks** | Claude Code is nudged to use the graph instead of broad `Read` / `grep`. Fail-open, off-switch included. |
+| **Shell compression** | `graphsnip run -- pytest` squeezes noisy output and keeps the failure lines. Savings are exact. |
+| **Dashboard** | Savings per call, efficiency vs accuracy, routing log, benchmark, and Graphify's interactive graph. |
+| **Safe installs** | Idempotent and reversible: `graphsnip install` / `graphsnip uninstall`. Your files are never overwritten. |
+
+## How it fits together
+
+```mermaid
+flowchart TB
+    R[your repo] --> G["Graphify<br/>tree-sitter AST → graph.json<br/>graph.html · communities"]
+    G --> S
+    subgraph S["graphsnip"]
+        direction LR
+        A["symbol slicer · context packs<br/>session dedupe · budgets"]
+        B["router · hooks · shell compression"]
+        C["savings ledger · dashboard"]
+    end
+    S --> M["MCP server<br/>gs_pack · gs_find · gs_symbol<br/>gs_impact · gs_outline · gs_route"]
+    M --> CC[Claude Code]
+    M --> CP[Copilot]
+    M --> CX[Codex]
+    S --> D[".graphsnip/dashboard.html"]
 ```
 
-## What Graphify gives you vs. what graphsnip adds
+## See it working
 
-| | Graphify | graphsnip |
+<table>
+<tr>
+<td width="50%">
+
+**Every call, grey vs teal.** Each pair is one tool call: what grep + read would have cost against what graphsnip returned (log scale), with the multiplier on top.
+
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/chart-per-call.png" alt="Per-call tokens, log scale">
+
+</td>
+<td width="50%">
+
+**Same answers, a fraction of the tokens.** On these questions every approach found the symbols, so the difference is what it cost to get there.
+
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/chart-efficiency-accuracy.png" alt="Efficiency vs accuracy">
+
+</td>
+</tr>
+</table>
+
+**Graphify's own graph** is embedded in the dashboard (and works offline). Every node is a symbol, colours are detected communities.
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/naubadnithin7/codegraf/main/docs/img/graphify-graph.png" alt="Graphify knowledge graph of Flask" width="860">
+</div>
+
+## Slash commands
+
+`graphsnip install` writes these for you:
+
+| Client | Command | File |
 |---|---|---|
-| Parse code → knowledge graph, communities, `graph.html` | ✅ | uses it, embeds it |
-| `query` / `path` / `explain` / `affected` | ✅ (maps, no source code) | wraps them, adds the code |
-| Returns **exact source of one symbol** (not the file) | – | `gs_symbol` (tree-sitter ranges, docstring trimming) |
-| One-call **context pack** for a task, under a token budget | – | `gs_pack` (graph-ranked, class skeletons, signatures) |
-| Suppresses re-sending code the agent already has | – | per-session dedupe |
-| Redirects broad `Read` / `grep` to the graph when it can answer | partial | PreToolUse hook with nudge / strict modes |
-| Compresses noisy test/build output | – | `graphsnip run -- <cmd>` (exact savings) |
-| **Measures** savings against a realistic baseline | corpus-vs-query only | per-call ledger, benchmark, dashboard |
-| Installs for Claude Code, Copilot, Codex | skills / rules | MCP + hooks + guidance + subagent, idempotent and reversible |
+| Claude Code | `/graphsnip <question>` and `/graphsnip-deep` | `.claude/commands/` |
+| Copilot (VS Code, Local chat) | `/graphsnip <question>` and `/graphsnip-deep` | `.github/prompts/*.prompt.md` |
+| Codex | `/prompts:graphsnip <question>` | `~/.codex/prompts/graphsnip.md` (Codex only reads prompts from your home folder; restart Codex) |
 
-## Measured results
-
-Same eight questions per repo, priced as tokens an agent would put in context.
-Baseline = *grep the question's terms, read the top 8 matching files in full* (what an agent does with no graph).
-"Graphify + read" = Graphify `query`, then reading the whole files its top hits point to.
-Token counts use the chars/4 estimate (install `graphsnip[accurate]` for tiktoken).
-
-| Repo | grep + read | Graphify + read | graphsnip | vs grep + read | vs Graphify + read | answered with code |
-|---|---:|---:|---:|---:|---:|---:|
-| Flask (Python, 1,500 symbols) | 366,565 | 164,491 | 17,869 | **95.1%** | 89.1% | 8/8 |
-| Express (JavaScript) | 165,832 | 58,553 | 8,955 | **94.6%** | 84.7% | 8/8 |
-
-Graphify's bare `query` is cheaper still (about 13k and 18k tokens across the eight tasks) but returns a map with **no source code**, so the agent still has to read files afterwards. graphsnip returns the map *and* the code in the same step. A task counts as answered only if the expected symbol appears with its source.
-
-Reproduce: `graphsnip bench` (tasks live in `.graphsnip/tasks.json`; replace them with your own questions).
-
-## Install
-
-```bash
-pipx install graphsnip            # recommended
-# or
-uvx graphsnip init                # run without installing
-# or
-npx graphsnip init                # thin wrapper, needs Python 3.10+ and pipx/uv
+```text
+/graphsnip how does request routing work
+/graphsnip impact Flask.dispatch_request
+/graphsnip savings
 ```
 
-Requires Python 3.10+. Graphify is installed as a dependency (`graphifyy`).
+## Model routing
+
+graphsnip cannot switch an agent's model by itself (an MCP server has no such power). What it does is decide, steer, and account for it honestly.
+
+```mermaid
+flowchart LR
+    T["/graphsnip task"] --> R{"gs_route<br/>wording + graph size"}
+    R -- light --> L["cheap model answers<br/>(Haiku)"]
+    R -- "too hard" --> E["prints: Escalating to Sonnet / Opus…"]
+    E --> H["stronger subagent finishes the job"]
+    L --> A[answer]
+    H --> A
+```
+
+| Client | How the model is switched | Verified by |
+|---|---|---|
+| **Claude Code** | `/graphsnip` is pinned to the light model; hard tasks hand off to a Sonnet / Opus subagent automatically | session transcripts (`graphsnip usage`) |
+| **Codex** | `graphsnip codex "task"` picks the tier and runs `codex exec -m <model>`: a real switch graphsnip performs | the launcher knows the model it passed |
+| **Copilot** | `/graphsnip` pinned only if you set `routing.models.copilot.light`; hard tasks need `/graphsnip-deep` | not available |
+
+- **Statuses.** `routed` (running tier matched the decision), `escalate`, `session` (ran on your own model on purpose), `overpowered`, `advisory` (nobody verified which model ran). Dollars are credited **only for `routed`**.
+- **Routing saves dollars per token, not tokens.** The token savings above come from the graph alone, and the dashboard keeps the two apart.
+- **Prices are editable placeholders** under `routing.prices` in `.graphsnip/config.json`. Put your real ones in before showing a dollar figure. Codex model names go under `routing.models.codex`.
+
+<details>
+<summary><b>Codex setup</b></summary>
+
+```json
+// .graphsnip/config.json
+{ "routing": { "models": { "codex": { "light": "<your light model>", "standard": "<your main model>", "heavy": "<your strongest model>" } } } }
+```
+```bash
+graphsnip codex "where is the auth middleware defined"      # routes, then runs codex exec -m <model>
+graphsnip codex --dry-run "refactor session handling"      # print the command only
+```
+`graphsnip install` also writes matching `graphsnip-light|standard|heavy` profiles into the Codex config.
+</details>
 
 ## Commands
+
+<details>
+<summary><b>All commands</b></summary>
 
 | Command | What it does |
 |---|---|
@@ -86,18 +186,23 @@ Requires Python 3.10+. Graphify is installed as a dependency (`graphifyy`).
 | `graphsnip build [--force]` | build or refresh the Graphify graph (code only, no LLM) |
 | `graphsnip pack "task"` | token-budgeted bundle of the code relevant to a task |
 | `graphsnip find "question"` | budgeted map: where things live, how they connect |
-| `graphsnip symbol Name` | one function/class: exact lines + callers + callees |
+| `graphsnip symbol Name` | one function or class: exact lines, callers, callees |
 | `graphsnip impact Name` | what depends on a symbol |
 | `graphsnip outline path` | symbols in a file with line numbers |
+| `graphsnip route "task"` | which model tier does this need? (logs the decision) |
+| `graphsnip codex "task"` | route, then run `codex exec -m <model for the tier>` |
 | `graphsnip run -- <cmd>` | run a command, compress its output, keep the exit code |
 | `graphsnip stats` / `report` | savings in the terminal / the HTML dashboard |
+| `graphsnip usage` | which models actually answered (from Claude Code transcripts) |
 | `graphsnip bench` | offline benchmark: grep+read vs Graphify vs graphsnip |
 | `graphsnip install` / `uninstall` | per-client config (`--clients claude,copilot,codex`) |
 | `graphsnip doctor` | check Python, Graphify, tree-sitter, graph freshness, client configs |
 
-Every query command prints `~N tokens returned vs ~M for grep+read → saved P%` to stderr. That is the number to show live.
+Every query command prints `~N tokens returned vs ~M for grep+read → saved P%` to stderr.
+</details>
 
-## MCP tools
+<details>
+<summary><b>MCP tools</b></summary>
 
 | Tool | Use it for |
 |---|---|
@@ -106,23 +211,28 @@ Every query command prints `~N tokens returned vs ~M for grep+read → saved P%`
 | `gs_symbol(name, max_lines, docs)` | read one definition instead of the file |
 | `gs_impact(name, depth)` | blast radius before changing a signature |
 | `gs_outline(path)` | symbols of a big file before opening it |
+| `gs_route(task, running_tier)` | which model tier this task needs |
 | `gs_savings()` | tokens saved so far |
 
-The server is a small dependency-free stdio JSON-RPC implementation (it does not depend on the MCP SDK's changing API). It auto-refreshes a stale graph and records every call in `.graphsnip/ledger.jsonl`.
+A small dependency-free stdio JSON-RPC server (it does not depend on the MCP SDK's changing API). It refreshes a stale graph and records every call in `.graphsnip/ledger.jsonl`.
+</details>
 
-## What `install` writes
+<details>
+<summary><b>What <code>install</code> writes</b></summary>
 
-Everything is idempotent (run it twice, nothing changes) and reversible (`graphsnip uninstall`). Your existing content is preserved: text files get a marked block, JSON is merged.
+Idempotent (run it twice, nothing changes) and reversible (`graphsnip uninstall`). Existing content is preserved: text files get a marked block, JSON is merged.
 
 | Client | Files |
 |---|---|
-| Claude Code | `.mcp.json`, `.claude/settings.json` (PreToolUse hook), `CLAUDE.md` block, `.claude/agents/graphsnip-explorer.md` (read-only Haiku subagent) |
-| Copilot (VS Code) | `.vscode/mcp.json`, `.github/copilot-instructions.md` block |
-| Codex | `.codex/config.toml` (or `~/.codex/config.toml` with `--codex-scope user`), `AGENTS.md` block |
+| Claude Code | `.mcp.json`, `.claude/settings.json` (PreToolUse hook), `CLAUDE.md` block, `.claude/commands/graphsnip*.md`, `.claude/agents/graphsnip-{explorer,standard,heavy}.md` |
+| Copilot (VS Code) | `.vscode/mcp.json`, `.github/copilot-instructions.md` block, `.github/prompts/graphsnip*.prompt.md` |
+| Codex | `.codex/config.toml` (or `~/.codex/config.toml` with `--codex-scope user`), `AGENTS.md` block, `~/.codex/prompts/graphsnip.md` |
 
-Flags: `--allow-tools` pre-approves the read-only tools in Claude Code, `--portable` writes bare `graphsnip` instead of this machine's absolute path (use it before committing the configs), `--strict` sets hook mode to strict.
+Flags: `--allow-tools` pre-approves the read-only tools in Claude Code, `--portable` writes bare `graphsnip` instead of this machine's absolute path (use it before committing configs), `--strict` sets hook mode to strict.
+</details>
 
-## Hooks (Claude Code)
+<details>
+<summary><b>Hooks (Claude Code)</b></summary>
 
 Fail-open: any error means "do nothing". Configure in `.graphsnip/config.json` (or `GRAPHSNIP_MODE`).
 
@@ -133,21 +243,24 @@ Fail-open: any error means "do nothing". Configure in `.graphsnip/config.json` (
 | `off` | nothing |
 
 `shell_filter: true` additionally rewrites noisy test/build commands to run through `graphsnip run`. It is **off by default** because the rewrite returns an `allow` decision, which skips the permission prompt; it is limited to an allow-list and never touches pipelines or chained commands. POSIX shells only.
+</details>
 
 ## How the numbers are measured (and what they are not)
 
-- **Baseline per call.** `find`/`pack`: grep the question's terms, read the top 8 matching files in full. `symbol`: read the whole file. `impact`: grep the name, read matching files (cap 10). Deliberately far below "read the whole repo", the figure Graphify's own `benchmark` compares against.
-- **Counted once.** In a real session, tokens that stay in context are re-sent every turn, so true savings compound. The dashboard does not claim that.
-- **Shell savings are exact** (raw vs compressed output), not estimated.
-- **Quality is checked**, not assumed (see `answered` above).
-- **Cost** is `tokens saved × price per million input tokens` (default $3, set `price_per_mtok` in the config). It ignores caching discounts and output tokens.
+- **Baseline per call.** `find` / `pack`: grep the question's terms, read the top 8 matching files in full. `symbol`: read the whole file. `impact`: grep the name, read matching files (cap 10).
+- **Counted once.** In a real session, tokens that stay in context are re-sent every turn, so true savings compound. The dashboard does not claim that (the explorer has an optional slider to show it).
+- **Quality is checked, not assumed.** A task counts as answered only if the expected symbol appears with its source. That measures whether the right code was delivered, not whether a model's final answer was right.
+- **Shell savings are exact** (raw vs compressed output). Token counts elsewhere are `chars / 4` estimates; install `graphsnip[accurate]` for tiktoken.
+- **Your repo will differ.** Savings are larger where files are large and lookups are broad. Replace the auto-generated tasks in `.graphsnip/tasks.json` with questions you really ask, then `graphsnip bench`.
+- **Dollars** are `tokens × price per million input tokens`, ignoring output tokens and caching. They are estimates.
 
 ## Known limits
 
-- Hooks and the three client configs follow each tool's documented formats, but only the MCP server was verified against a real client in development (the official MCP Python client). Run `graphsnip doctor` and a short session in each client before relying on them.
-- Symbol slicing is exact for the ~25 languages with tree-sitter grammars installed; elsewhere it falls back to indentation / brace matching.
+- The hooks and the three client configs follow each tool's documented formats; the MCP server was verified against the official MCP Python client. Run `graphsnip doctor` and a short session in each client before relying on them.
+- Symbol slicing is exact for the ~25 languages with tree-sitter grammars installed; elsewhere it falls back to indentation or brace matching.
 - The graph only covers what Graphify extracts from code. Docs, PDFs and images need Graphify's semantic pass (needs an LLM key) and are not part of graphsnip's tools.
 - Graphify's `graph.html` loads vis-network from a CDN; graphsnip caches it locally so the dashboard works offline (needs internet once).
+- Model routing: Copilot cannot hand off to another model, Codex prompt files cannot pin one (use `graphsnip codex`), and the "measured" model mix works only for Claude Code.
 
 ## Development
 
@@ -156,12 +269,7 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-## Publishing
-
-```bash
-python -m build && twine upload dist/*          # PyPI (name `graphsnip`)
-cd npm && npm publish                           # npm wrapper (name `graphsnip`)
-```
+Publishing: `python -m build && twine upload dist/*` (PyPI), `cd npm && npm publish` (thin npm wrapper that needs Python 3.10+ and pipx or uv).
 
 ## License
 

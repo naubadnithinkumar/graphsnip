@@ -33,3 +33,10 @@
 - Graph blank in the dashboard → open `graph.html` from the same folder (needs the sibling `vis-network.min.js`).
 - Agent doesn't call the tools → `graphsnip doctor`; restart the agent; the CLI commands above work without any agent.
 - Hook too aggressive → `GRAPHSNIP_MODE=off` or `"mode": "nudge"` in `.graphsnip/config.json`.
+
+
+## Add-ons for the demo
+
+- **Interactive explorer** (`docs/explorer.html`): open it in a browser, toggle the layers (no graph, Graphify alone, Graphify + read, graphsnip) and move the sliders to show monthly cost for the audience's own volume. The "re-sent" slider is the compounding effect; leave it at 1 unless you say so out loud.
+- **Dashboard tabs**: *Per call* (log scale, multiplier on every pair) is the best opening chart; *Efficiency vs accuracy* answers "does it get worse answers?" (same symbols found, a fraction of the tokens).
+- **Routing**: say "routing saves dollars per token, not tokens". Show the task-by-task log; do not quote a routing dollar figure unless it comes from real `/graphsnip` runs.

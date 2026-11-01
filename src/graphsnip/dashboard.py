@@ -175,13 +175,18 @@ def _tradeoff(bench: dict, width: int = 760, height: int = 320) -> str:
         out.append(f'<text x="{X(10 ** e10):.1f}" y="{height - 24}" text-anchor="middle" class="axis">{_fmt_tok(10 ** e10)}</text>')
         e10 += 1
     out.append(f'<text x="{pl + W / 2:.0f}" y="{height - 6}" text-anchor="middle" class="axis">tokens put in context for the benchmark tasks (log scale, fewer is better →)</text>')
-    for name, tok, acc, col, note in pts:
+    pts.sort(key=lambda x: x[1])
+    for i, (name, tok, acc, col, note) in enumerate(pts):
         x, y = X(tok), Y(acc)
-        anchor = "end" if x > pl + W * 0.7 else "start"
-        dx = -10 if anchor == "end" else 10
-        out.append(f'<g><title>{e(name)}: {tok:,} tokens, {acc * 100:.0f}% answered ({note})</title><circle cx="{x:.1f}" cy="{y:.1f}" r="8" fill="{col}"/>'
-                   f'<text x="{x + dx:.1f}" y="{y - 12:.1f}" text-anchor="{anchor}" class="lbl" style="font-size:13px;font-weight:600">{e(name)}</text>'
-                   f'<text x="{x + dx:.1f}" y="{y + 20:.1f}" text-anchor="{anchor}" class="axis">{tok:,} tok · {acc * 100:.0f}%</text></g>')
+        lvl = i % 2                       # stagger labels on two rows below the points so ties never overlap
+        ly = y + 34 + lvl * 40
+        anchor = "end" if x > pl + W * 0.72 else "start"
+        dx = -6 if anchor == "end" else 6
+        out.append(f'<g><title>{e(name)}: {tok:,} tokens, {acc * 100:.0f}% answered ({note})</title>'
+                   f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y + 8:.1f}" y2="{ly - 14:.1f}" stroke="{col}" stroke-width="1.5" stroke-dasharray="3 3"/>'
+                   f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8" fill="{col}"/>'
+                   f'<text x="{x + dx:.1f}" y="{ly:.1f}" text-anchor="{anchor}" class="lbl" style="font-size:13px;font-weight:600">{e(name)}</text>'
+                   f'<text x="{x + dx:.1f}" y="{ly + 15:.1f}" text-anchor="{anchor}" class="axis">{tok:,} tokens · {acc * 100:.0f}% answered</text></g>')
     out.append("</svg>")
     return "".join(out)
 
