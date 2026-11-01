@@ -77,6 +77,8 @@ def summarize(records: list[dict], price_per_mtok: float = 3.0, sources: set[str
         "deduped": sum(1 for r in rows if r.get("deduped")),
         "by_tool": dict(by_tool),
         "timeline": timeline,
+        "series": [{"tool": r.get("tool", "?"), "query": str(r.get("query", ""))[:60], "returned": int(r.get("returned", 0)),
+                    "baseline": int(r.get("baseline", 0))} for r in rows[-30:]],
         "recent": list(reversed(rows[-12:])),
         "hooks": dict(hook_counts),
         "first_ts": rows[0].get("ts") if rows else None,

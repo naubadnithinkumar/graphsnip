@@ -75,9 +75,147 @@ def _lines(timeline: list[dict], width: int = 720, height: int = 260) -> str:
     return "".join(out)
 
 
+def _fmt_tok(v: float) -> str:
+    return f"{v / 1e6:g}M" if v >= 1e6 else f"{v / 1e3:g}k" if v >= 1e3 else f"{v:g}"
+
+
+def _percall(series: list[dict], width: int = 760, height: int = 330) -> str:
+    """Paired bars per call on a log axis, so a 2% result is as visible as a 100% one, with the multiplier on top."""
+    import math
+
+    pts = [x for x in series if x["baseline"] > 0 and x["returned"] > 0]
+    if not pts:
+        return '<p class="muted">No calls recorded yet. Use the tools (or run <code>graphsnip bench</code>) and re-generate.</p>'
+    pl, pr, pt, pb = 52, 10, 22, 40
+    W, H = width - pl - pr, height - pt - pb
+    vals = [x["returned"] for x in pts] + [x["baseline"] for x in pts]
+    lo, hi = 10 ** math.floor(math.log10(max(1, min(vals)))), 10 ** math.ceil(math.log10(max(vals)))
+    if lo == hi:
+        hi = lo * 10
+
+    def Y(v):
+        return pt + H * (1 - (math.log10(v) - math.log10(lo)) / (math.log10(hi) - math.log10(lo)))
+
+    k = len(pts)
+    slot = W / k
+    bw = max(3.0, min(26.0, slot * 0.38))
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Tokens per call with and without graphsnip, log scale" class="chart">']
+    e10 = int(math.log10(lo))
+    while 10 ** e10 <= hi:
+        y = Y(10 ** e10)
+        out.append(f'<line x1="{pl}" x2="{width - pr}" y1="{y:.1f}" y2="{y:.1f}" class="grid"/>'
+                   f'<text x="{pl - 7}" y="{y + 4:.1f}" text-anchor="end" class="axis">{_fmt_tok(10 ** e10)}</text>')
+        e10 += 1
+    for i, x in enumerate(pts):
+        cx = pl + slot * (i + 0.5)
+        yb, yr = Y(x["baseline"]), Y(x["returned"])
+        mult = x["baseline"] / x["returned"]
+        tip = f'{x["tool"]}: {x["query"]} | baseline {x["baseline"]:,} vs graphsnip {x["returned"]:,} tokens ({mult:.0f}x fewer)'
+        out.append(f'<g><title>{e(tip)}</title><rect x="{cx - bw - 1:.1f}" y="{yb:.1f}" width="{bw:.1f}" height="{pt + H - yb:.1f}" class="b-grep" rx="2"/>'
+                   f'<rect x="{cx + 1:.1f}" y="{yr:.1f}" width="{bw:.1f}" height="{pt + H - yr:.1f}" class="b-cg" rx="2"/>')
+        if slot >= 34:
+            out.append(f'<text x="{cx:.1f}" y="{yb - 5:.1f}" text-anchor="middle" class="num" style="font-size:12px">{mult:.0f}×</text>')
+        out.append("</g>")
+        if k <= 12 or i % max(1, k // 10) == 0:
+            out.append(f'<text x="{cx:.1f}" y="{height - 22}" text-anchor="middle" class="axis">{e(x["tool"].replace("gs_", ""))}</text>'
+                       f'<text x="{cx:.1f}" y="{height - 9}" text-anchor="middle" class="axis">#{i + 1}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def _saved_line(timeline: list[dict], width: int = 760, height: int = 300) -> str:
+    """Cumulative tokens SAVED: one line that visibly climbs, instead of two lines where one hugs zero."""
+    if len(timeline) < 2:
+        return '<p class="muted">Not enough calls yet to draw a curve.</p>'
+    pl, pr, pt, pb = 58, 70, 18, 34
+    W, H = width - pl - pr, height - pt - pb
+    sv = [t["baseline"] - t["returned"] for t in timeline]
+    mx = max(sv) or 1
+    k = len(sv)
+    X = lambda i: pl + W * i / (k - 1)  # noqa: E731
+    Y = lambda v: pt + H * (1 - v / mx)  # noqa: E731
+    line = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, v in enumerate(sv))
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Cumulative tokens saved" class="chart">']
+    for frac in (0, 0.25, 0.5, 0.75, 1):
+        y = pt + H * (1 - frac)
+        out.append(f'<line x1="{pl}" x2="{width - pr}" y1="{y:.1f}" y2="{y:.1f}" class="grid"/><text x="{pl - 7}" y="{y + 4:.1f}" text-anchor="end" class="axis">{n(mx * frac)}</text>')
+    out.append(f'<polygon points="{pl},{pt + H} {line} {X(k - 1):.1f},{pt + H}" class="area" style="opacity:.28"/><polyline points="{line}" class="l-ret" fill="none"/>')
+    out.append(f'<circle cx="{X(k - 1):.1f}" cy="{Y(sv[-1]):.1f}" r="4.5" fill="var(--cg)"/><text x="{X(k - 1) + 8:.1f}" y="{Y(sv[-1]) + 4:.1f}" class="num" style="font-size:13px">{n(sv[-1])}</text>')
+    out.append(f'<text x="{pl}" y="{height - 8}" class="axis">call 1</text><text x="{X(k - 1):.1f}" y="{height - 8}" text-anchor="end" class="axis">call {k}</text></svg>')
+    return "".join(out)
+
+
+def _tradeoff(bench: dict, width: int = 760, height: int = 320) -> str:
+    """Efficiency vs accuracy: tokens (log, left = cheaper) against tasks answered. Up and to the left wins."""
+    import math
+
+    t = bench["totals"]
+    nt = max(1, t["tasks"])
+    pts = [("graphsnip", t["graphsnip_tokens"], t["answered"] / nt, "var(--cg)", "answered with exact code"),
+           ("grep + read", t["naive_tokens"], t["naive_answered"] / nt, "var(--grep)", "whole files"),
+           ("Graphify + read", t["graphify_read_tokens"], t["graphify_answered"] / nt, "var(--gfyread)", "map, then whole files"),
+           ("Graphify alone", t["graphify_tokens"], t["graphify_answered"] / nt, "var(--gfy)", "map only, no source code")]
+    pts = [x for x in pts if x[1] > 0]
+    if not pts:
+        return '<p class="muted">Run <code>graphsnip bench</code> to see this view.</p>'
+    pl, pr, pt, pb = 52, 24, 26, 44
+    W, H = width - pl - pr, height - pt - pb
+    ymin = max(0.0, math.floor(min(x[2] for x in pts) * 10 - 2) / 10)  # zoom the accuracy axis; labelled on the chart
+    lo = 10 ** math.floor(math.log10(min(x[1] for x in pts)))
+    hi = 10 ** math.ceil(math.log10(max(x[1] for x in pts)))
+    X = lambda v: pl + W * (math.log10(v) - math.log10(lo)) / max(1e-9, math.log10(hi) - math.log10(lo))  # noqa: E731
+    Y = lambda a: pt + H * (1 - (a - ymin) / (1 - ymin))  # noqa: E731
+    out = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="Tokens versus tasks answered" class="chart">']
+    for a in [ymin + (1 - ymin) * f for f in (0, 0.25, 0.5, 0.75, 1)]:
+        out.append(f'<line x1="{pl}" x2="{width - pr}" y1="{Y(a):.1f}" y2="{Y(a):.1f}" class="grid"/><text x="{pl - 7}" y="{Y(a) + 4:.1f}" text-anchor="end" class="axis">{a * 100:.0f}%</text>')
+    if ymin > 0:
+        out.append(f'<text x="{pl + 8}" y="{pt + H - 8}" class="axis">y axis: tasks answered, zoomed (starts at {ymin * 100:.0f}%, not 0)</text>')
+    e10 = int(math.log10(lo))
+    while 10 ** e10 <= hi:
+        out.append(f'<text x="{X(10 ** e10):.1f}" y="{height - 24}" text-anchor="middle" class="axis">{_fmt_tok(10 ** e10)}</text>')
+        e10 += 1
+    out.append(f'<text x="{pl + W / 2:.0f}" y="{height - 6}" text-anchor="middle" class="axis">tokens put in context for the benchmark tasks (log scale, fewer is better →)</text>')
+    for name, tok, acc, col, note in pts:
+        x, y = X(tok), Y(acc)
+        anchor = "end" if x > pl + W * 0.7 else "start"
+        dx = -10 if anchor == "end" else 10
+        out.append(f'<g><title>{e(name)}: {tok:,} tokens, {acc * 100:.0f}% answered ({note})</title><circle cx="{x:.1f}" cy="{y:.1f}" r="8" fill="{col}"/>'
+                   f'<text x="{x + dx:.1f}" y="{y - 12:.1f}" text-anchor="{anchor}" class="lbl" style="font-size:13px;font-weight:600">{e(name)}</text>'
+                   f'<text x="{x + dx:.1f}" y="{y + 20:.1f}" text-anchor="{anchor}" class="axis">{tok:,} tok · {acc * 100:.0f}%</text></g>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+def _chart_card(head: dict, head_label: str, bench: dict | None) -> str:
+    ser = head.get("series") or []
+    ratios = sorted(x["baseline"] / x["returned"] for x in ser if x["baseline"] > 0 and x["returned"] > 0)
+    med = ratios[len(ratios) // 2] if ratios else 0
+    tabs = [("pc", "Per call", _percall(ser),
+             f'Each pair is one tool call: grey = what grep + read would have cost, teal = what graphsnip returned (log scale). '
+             + (f'<b>Typical call: {med:.0f}× fewer tokens.</b>' if med else "")),
+            ("sv", "Tokens saved", _saved_line(head["timeline"]), "Running total of tokens kept out of the context window.")]
+    if bench:
+        t = bench["totals"]
+        tabs.append(("ea", "Efficiency vs accuracy", _tradeoff(bench),
+                     f'Same {t["tasks"]} questions, four approaches. <b>graphsnip answered {t["answered"]}/{t["tasks"]} with exact source code using '
+                     f'{100 - t["saved_pct"]:.0f}% of the tokens</b> of grep + read ({t["naive_answered"]}/{t["tasks"]}). "Answered" = expected symbol present; for graphsnip its source code must be too. '
+                     f'Graphify alone finds the symbol but returns no code.'))
+    tabs.append(("cu", "Cumulative", _lines(head["timeline"]), "Both running totals on one linear axis; the graphsnip line hugs zero because it is so small."))
+    btns = "".join(f'<button type="button" class="tab{" on" if i == 0 else ""}" data-t="{k}">{e(lbl)}</button>' for i, (k, lbl, _, _) in enumerate(tabs))
+    panels = "".join(f'<div class="tp" data-p="{k}"{"" if i == 0 else " hidden"}>{svg}<p class="sub" style="margin-top:6px">{cap}</p></div>'
+                     for i, (k, _, svg, cap) in enumerate(tabs))
+    legend = ('<div class="legend"><span><i class="dot" style="background:var(--grep)"></i>without graphsnip (baseline)</span>'
+              '<span><i class="dot" style="background:var(--cg)"></i>with graphsnip</span></div>')
+    return (f'<section class="card"><h2>Efficiency and accuracy</h2><div class="sub">{e(head_label)}</div>'
+            f'<div class="tabs">{btns}</div>{panels}{legend}</section>')
+
+
 def _kpi(label: str, value: str, sub: str = "", accent: bool = False) -> str:
     return (f'<div class="kpi{" accent" if accent else ""}"><div class="k-l">{e(label)}</div>'
             f'<div class="k-v">{value}</div><div class="k-s">{e(sub)}</div></div>')
+
+
+TAB_JS = '''<script>document.querySelectorAll(".card").forEach(function(c){var b=c.querySelectorAll(".tab");b.forEach(function(x){x.onclick=function(){b.forEach(function(y){y.classList.toggle("on",y===x)});c.querySelectorAll(".tp").forEach(function(p){p.hidden=p.dataset.p!==x.dataset.t})}})})</script>'''
 
 
 def _fold(fid: str, title: str, summary: str, body: str, open_: bool = False) -> str:
@@ -126,6 +264,8 @@ details>summary{list-style:none}details>summary::-webkit-details-marker{display:
 .nav a{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;font-size:13px;color:var(--mut);text-decoration:none}.nav a:hover{color:var(--brand);border-color:var(--brand)}
 html{scroll-behavior:smooth}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}.flow .st{border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;background:var(--card)}
 .flow .st.g{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 9%,transparent)}.flow .st.w{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent)}.flow .ar{color:var(--mut)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 8px}.tab{border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:8px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}
+.tab.on{background:var(--brand);border-color:var(--brand);color:#fff}.tp[hidden]{display:none}@media(max-width:900px){.two{grid-template-columns:1fr!important}}
 footer{color:var(--mut);font-size:12.5px;margin-top:26px}
 """
 
@@ -273,10 +413,7 @@ def build_html(project: Project, graph_href: str) -> str:
         f'<td class="r">{n(v["baseline"])}</td><td class="r">{(100 * (v["baseline"] - v["returned"]) / v["baseline"]) if v["baseline"] else 0:.0f}%</td></tr>'
         for tool, v in sorted(by_tool.items(), key=lambda kv: -(kv[1]["baseline"] - kv[1]["returned"])))
     sections.append(
-        f'<div class="two"><section class="card"><h2>Cumulative tokens</h2><div class="sub">{e(head_label)}</div>'
-        f'<div style="margin-top:8px">{_lines(tl_src)}</div>'
-        f'<div class="legend"><span><i class="dot" style="background:var(--grep)"></i>without graphsnip (baseline)</span>'
-        f'<span><i class="dot" style="background:var(--cg)"></i>with graphsnip</span></div></section>'
+        f'<div class="two" style="grid-template-columns:1.5fr 1fr">{_chart_card(head, head_label, bench)}'
         f'<section class="card"><h2>By tool</h2><div class="sub">where the savings come from</div>'
         f'<table style="margin-top:8px"><thead><tr><th>Tool</th><th class="r">Calls</th><th class="r">Returned</th><th class="r">Baseline</th><th class="r">Saved</th></tr></thead>'
         f'<tbody>{rows or "<tr><td colspan=5 class=muted>No calls recorded yet.</td></tr>"}</tbody></table>'
@@ -347,7 +484,7 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
             f'<div class="grid4" id="top">{"".join(kpis)}</div>{"".join(sections)}'
             f'<footer>graphsnip is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; graphsnip adds symbol-level retrieval, '
-            f'context packs, hooks, MCP, and this honest accounting.</footer></div></body></html>')
+            f'context packs, hooks, MCP, and this honest accounting.</footer></div>{TAB_JS}</body></html>')
 
 
 _VIS_VERSION = "9.1.6"
