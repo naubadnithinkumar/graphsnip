@@ -5,6 +5,7 @@ import argparse
 import importlib.metadata as md
 import json
 import shutil
+import os
 import sys
 import webbrowser
 
@@ -348,6 +349,18 @@ def cmd_doctor(a) -> int:
     }
     for c in CLIENTS:
         print(f"{'✓' if found[c] else '·'} {c}: {'MCP server registered' if found[c] else 'not installed here (graphsnip install --clients ' + c + ')'}")
+    for label, f, key in (("claude", mcp_claude, "mcpServers"), ("copilot", p.root / ".vscode" / "mcp.json", "servers")):
+        try:
+            ent = json.loads(f.read_text(encoding="utf-8")).get(key, {}).get("graphsnip")
+        except Exception:
+            ent = None
+        if ent:
+            c = str(ent.get("command", ""))
+            if not os.path.isabs(c):
+                print(f"! {label}: server command is the bare `{c}`; apps started from the Dock/Start menu may not find it. "
+                      f"Re-run `graphsnip install` (without --portable) to write the full path.")
+            elif not os.path.exists(c):
+                print(f"! {label}: server command {c} does not exist; re-run `graphsnip install`.")
     hook_on = st.exists() and HOOK_MARK in st.read_text(encoding="utf-8", errors="ignore")
     print(f"{'✓' if hook_on else '·'} claude hook: {'installed' if hook_on else 'not installed'}  (mode: {p.config()['mode']})")
     print("\nAll good." if ok else "\nSome checks failed; see arrows above.")

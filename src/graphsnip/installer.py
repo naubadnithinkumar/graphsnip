@@ -149,9 +149,10 @@ class Plan:
 _PORTABLE = False  # True: write bare `graphsnip` (commit-friendly) instead of this machine's absolute path
 
 
-def _command(project_root: Path | None) -> tuple[str, list[str]]:
+def _command(project_root: Path | None, gui: bool = False) -> tuple[str, list[str]]:
+    """`gui=True`: the client is a GUI app (VS Code) that often has no pipx dir on its PATH, so always prefer the absolute path."""
     exe = shutil.which("graphsnip")
-    if _PORTABLE:
+    if _PORTABLE and not (gui and exe):
         return "graphsnip", ["serve", "--root", "."]
     if exe:
         return exe, ["serve", "--root", "."]
@@ -289,7 +290,7 @@ def _claude(root: Path, plan: Plan, allow_tools: bool, strict: bool) -> None:
 
 
 def _copilot(root: Path, plan: Plan) -> None:
-    cmd, args = _command(root)
+    cmd, args = _command(root, gui=True)
 
     def mcp():
         p = root / ".vscode" / "mcp.json"

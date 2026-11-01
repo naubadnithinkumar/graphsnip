@@ -317,3 +317,17 @@ def test_ab_negative_result_is_labelled_honestly(tmp_path):
     assert "INCREASE" in ab.format_table(res)
     html = dashboard.build_html(Project(str(tmp_path)), "x.html")
     assert "Measured cost INCREASE" in html and "$-" not in html.split("Measured A/B")[1][:4000]
+
+
+def test_copilot_config_uses_absolute_path_even_when_portable(tmp_path, monkeypatch):
+    import json
+    import shutil as _sh
+    from graphsnip import installer
+
+    monkeypatch.setattr(_sh, "which", lambda n, *a, **k: "/opt/bin/graphsnip" if n == "graphsnip" else None)
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    installer.install(str(tmp_path), ["claude", "copilot"], portable=True)
+    vs = json.loads((tmp_path / ".vscode" / "mcp.json").read_text())["servers"]["graphsnip"]
+    cl = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["graphsnip"]
+    assert vs["command"] == "/opt/bin/graphsnip"
+    assert cl["command"] == "graphsnip"
