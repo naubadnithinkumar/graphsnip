@@ -153,6 +153,8 @@ def summarize(runs: list[dict], tasks: list[dict]) -> dict:
             rs = [r for r in runs if r.get("task") == t["id"] and r.get("arm") == arm and r.get("ok")]
             row[arm] = {"runs": len(rs), "cost": _med([r["cost"] for r in rs]), "context": _med([r["context"] for r in rs]),
                         "output": _med([r["output"] for r in rs]), "turns": _med([r["turns"] for r in rs]),
+                        "cache_creation": _med([r.get("cache_creation", 0) for r in rs]), "cache_read": _med([r.get("cache_read", 0) for r in rs]),
+                        "input": _med([r.get("input", 0) for r in rs]),
                         "hits": sum(1 for r in rs if r.get("hit")), "hit_known": sum(1 for r in rs if r.get("hit") is not None)}
         per_task.append(row)
     both = [r for r in per_task if r["control"]["runs"] and r["treat"]["runs"]]
@@ -163,6 +165,7 @@ def summarize(runs: list[dict], tasks: list[dict]) -> dict:
     cc, tc = tot("control", "cost"), tot("treat", "cost")
     cx, tx = tot("control", "context"), tot("treat", "context")
     return {
+        "runs": runs,
         "tasks": per_task,
         "paired_tasks": len(both),
         "failed_runs": sum(1 for r in runs if not r.get("ok")),
@@ -171,6 +174,9 @@ def summarize(runs: list[dict], tasks: list[dict]) -> dict:
                    "control_context": int(cx), "treat_context": int(tx), "context_saved": int(cx - tx),
                    "context_saved_pct": round(100 * (cx - tx) / cx, 1) if cx else 0.0,
                    "control_output": int(tot("control", "output")), "treat_output": int(tot("treat", "output")),
+                   "control_turns": tot("control", "turns"), "treat_turns": tot("treat", "turns"),
+                   "control_cache_creation": int(tot("control", "cache_creation")), "treat_cache_creation": int(tot("treat", "cache_creation")),
+                   "control_cache_read": int(tot("control", "cache_read")), "treat_cache_read": int(tot("treat", "cache_read")),
                    "control_hits": tot("control", "hits"), "treat_hits": tot("treat", "hits"),
                    "hit_known": tot("treat", "hit_known")},
     }
@@ -189,8 +195,13 @@ def format_table(res: dict) -> str:
                      f"{c['hits']}/{c['hit_known']} vs {g['hits']}/{g['hit_known']}")
     lines.append("-" * 80)
     lines.append(f"MEASURED over {res['paired_tasks']} tasks × {res['repeats']} runs per arm (model: {res['model']}):")
-    lines.append(f"  cost      ${t['control_cost']:.4f} → ${t['treat_cost']:.4f}   saved ${t['cost_saved']:.4f} ({t['cost_saved_pct']}%)")
-    lines.append(f"  context   {t['control_context']:,} → {t['treat_context']:,} tokens   saved {t['context_saved']:,} ({t['context_saved_pct']}%)")
+    word = "saved" if t["cost_saved"] >= 0 else "INCREASE of"
+    lines.append(f"  cost      ${t['control_cost']:.4f} → ${t['treat_cost']:.4f}   {word} ${abs(t['cost_saved']):.4f} ({abs(t['cost_saved_pct'])}%)")
+    cw = "saved" if t["context_saved"] >= 0 else "INCREASE of"
+    lines.append(f"  context   {t['control_context']:,} → {t['treat_context']:,} tokens   {cw} {abs(t['context_saved']):,} ({abs(t['context_saved_pct'])}%)")
+    lines.append(f"  where it goes (median per task, summed)  turns {t.get('control_turns', 0):g} → {t.get('treat_turns', 0):g}   "
+                 f"cache-write {t.get('control_cache_creation', 0):,} → {t.get('treat_cache_creation', 0):,}   "
+                 f"output {t['control_output']:,} → {t['treat_output']:,}")
     lines.append(f"  answered  without {t['control_hits']}/{t['hit_known']}   with graphsnip {t['treat_hits']}/{t['hit_known']}  (expected symbols present; read the saved answers to judge quality)")
     if res.get("aborted"):
         lines.append(f"  NOTE: {res['aborted']}")

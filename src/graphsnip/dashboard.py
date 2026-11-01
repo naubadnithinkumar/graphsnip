@@ -287,6 +287,10 @@ def _load_ab(project: Project) -> dict | None:
         return None
 
 
+def _signed(v: float, digits: int = 4) -> str:
+    return f"-${abs(v):.{digits}f}" if v < 0 else f"${v:.{digits}f}"
+
+
 def _ab_card(project: Project) -> str:
     ab = _load_ab(project)
     if not ab:
@@ -295,8 +299,10 @@ def _ab_card(project: Project) -> str:
                 '(capped; default $5), so it is never run automatically.</p></section>')
     t = ab["totals"]
     kp = "".join([
-        _kpi("Measured cost saved", f"${t['cost_saved']:.4f}", f"${t['control_cost']:.4f} → ${t['treat_cost']:.4f} ({t['cost_saved_pct']}%)", accent=True),
-        _kpi("Context tokens saved", n(t["context_saved"]), f"{n(t['control_context'])} → {n(t['treat_context'])} ({t['context_saved_pct']}%)"),
+        _kpi("Measured cost saved" if t["cost_saved"] >= 0 else "Measured cost INCREASE", _signed(abs(t["cost_saved"])),
+             f"${t['control_cost']:.4f} → ${t['treat_cost']:.4f} ({abs(t['cost_saved_pct'])}% {'less' if t['cost_saved'] >= 0 else 'more'})", accent=t["cost_saved"] >= 0),
+        _kpi("Context tokens saved" if t["context_saved"] >= 0 else "Context tokens increase", n(abs(t["context_saved"])),
+             f"{n(t['control_context'])} → {n(t['treat_context'])} ({abs(t['context_saved_pct'])}%)"),
         _kpi("Expected symbols found", f"{t['treat_hits']}/{t['hit_known']}", f"without graphsnip {t['control_hits']}/{t['hit_known']}"),
         _kpi("Runs", n(ab["paired_tasks"] * ab["repeats"] * 2), f"{ab['repeats']} per task per arm · model {ab['model']}"),
     ])
@@ -306,17 +312,21 @@ def _ab_card(project: Project) -> str:
         if not (c["runs"] and g["runs"]):
             continue
         sv = f"{100 * (c['cost'] - g['cost']) / c['cost']:.0f}%" if c["cost"] else "-"
-        rows += (f"<tr><td>{e(r['question'][:70])}</td><td class='r'>${c['cost']:.4f}</td><td class='r'>${g['cost']:.4f}</td><td class='r'>{sv}</td>"
-                 f"<td class='r'>{n(c['context'])}</td><td class='r'>{n(g['context'])}</td><td class='r'>{c['hits']}/{c['hit_known']} · {g['hits']}/{g['hit_known']}</td></tr>")
+        tv = lambda a, b: f"{a:g} → {b:g}" if (a or b) else "-"  # noqa: E731
+        rows += (f"<tr><td>{e(r['question'][:60])}</td><td class='r'>${c['cost']:.4f}</td><td class='r'>${g['cost']:.4f}</td><td class='r'>{sv}</td>"
+                 f"<td class='r'>{n(c['context'])} → {n(g['context'])}</td><td class='r'>{tv(c.get('turns', 0), g.get('turns', 0))}</td>"
+                 f"<td class='r'>{n(c.get('cache_creation', 0))} → {n(g.get('cache_creation', 0))}</td><td class='r'>{n(c['output'])} → {n(g['output'])}</td>"
+                 f"<td class='r'>{c['hits']}/{c['hit_known']} · {g['hits']}/{g['hit_known']}</td></tr>")
     note = (f"<p class='sub'>Real usage and cost reported by <code>claude -p --output-format json</code>, including caching and every turn. Medians over repeats. "
             f"Both arms read-only, same model and prompt, fresh session each run. “Found” only checks the expected symbols appear; the answers are saved in "
             f"<code>{e(str(ab['answers_dir']))}</code> so you can judge quality yourself. Run {e(ab['ts'])}"
             + (f"; <b>{e(ab['aborted'])}</b>" if ab.get("aborted") else "") + (f"; {ab['failed_runs']} failed run(s) excluded" if ab.get("failed_runs") else "") + ".</p>")
     return (f'<section class="card fold" id="ab"><details open><summary><span class="ft">Measured A/B (real runs)</span>'
-            f'<span class="fs">cost ${t["control_cost"]:.2f} → ${t["treat_cost"]:.2f} · {t["cost_saved_pct"]}% saved</span></summary><div class="fb">'
+            f'<span class="fs">cost ${t["control_cost"]:.2f} → ${t["treat_cost"]:.2f} · {abs(t["cost_saved_pct"])}% {"saved" if t["cost_saved"] >= 0 else "more"}</span></summary><div class="fb">'
             f'<div class="grid4" style="margin-top:6px">{kp}</div>'
             f'<div style="overflow:auto"><table><thead><tr><th>Question</th><th class="r">Without $</th><th class="r">With $</th><th class="r">Saved</th>'
-            f'<th class="r">Ctx tokens without</th><th class="r">with</th><th class="r">Found (without · with)</th></tr></thead><tbody>{rows}</tbody></table></div>{note}</div></details></section>')
+            f'<th class="r">Context tokens</th><th class="r">Turns</th><th class="r">Cache-write tokens</th><th class="r">Output tokens</th><th class="r">Found</th></tr></thead><tbody>{rows}</tbody></table></div>'
+            f'<p class="sub">Arrows read without → with graphsnip. If cost is up while context is flat, look at turns, cache-write (billed at a premium for each fresh session) and output.</p>{note}</div></details></section>')
 
 
 def _routing_card(project: Project, recs: list[dict], price: float) -> str:
@@ -420,7 +430,9 @@ def build_html(project: Project, graph_href: str) -> str:
     ab = _load_ab(project)
     if ab:
         at = ab["totals"]
-        kpis.append(_kpi("Measured cost saved (A/B)", f"${at['cost_saved']:.2f}", f"{at['cost_saved_pct']}% · real runs, {ab['paired_tasks']} tasks × {ab['repeats']}", accent=True))
+        pos = at["cost_saved"] >= 0
+        kpis.append(_kpi("Measured cost saved (A/B)" if pos else "Measured cost INCREASE (A/B)", _signed(abs(at["cost_saved"]), 2),
+                         f"{abs(at['cost_saved_pct'])}% {'less' if pos else 'more'} · real runs, {ab['paired_tasks']} tasks × {ab['repeats']}", accent=pos))
     if bench:
         t = bench["totals"]
         kpis.append(_kpi("Answered correctly", f"{t['answered']}/{t['tasks']}", "benchmark tasks with expected symbol + source"))

@@ -303,3 +303,17 @@ def test_dashboard_shows_measured_ab(tmp_path):
     ab.run_ab(str(tmp_path), repeats=1, runner=_fake_claude(), log=lambda s: None)
     html = dashboard.build_html(Project(str(tmp_path)), "x.html")
     assert "Measured A/B (real runs)" in html and "Measured cost saved" in html
+
+
+def test_ab_negative_result_is_labelled_honestly(tmp_path):
+    from graphsnip import ab, dashboard
+    from graphsnip.project import Project
+
+    (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
+    (tmp_path / ".graphsnip").mkdir()
+    (tmp_path / ".graphsnip" / "tasks.json").write_text('{"tasks":[{"id":"t1","question":"where is hello","expect":["hello"]}]}')
+    res = ab.run_ab(str(tmp_path), repeats=1, runner=_fake_claude(cost_ctl=0.05, cost_gs=0.08), log=lambda s: None)
+    assert res["totals"]["cost_saved"] < 0 and res["runs"] and "turns" in res["tasks"][0]["treat"]
+    assert "INCREASE" in ab.format_table(res)
+    html = dashboard.build_html(Project(str(tmp_path)), "x.html")
+    assert "Measured cost INCREASE" in html and "$-" not in html.split("Measured A/B")[1][:4000]
