@@ -279,6 +279,46 @@ def _usd(v: float) -> str:
     return f"-${abs(v):.4f}" if v < 0 else f"${v:.4f}"
 
 
+def _load_ab(project: Project) -> dict | None:
+    p = project.gs_dir / "ab.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except Exception:
+        return None
+
+
+def _ab_card(project: Project) -> str:
+    ab = _load_ab(project)
+    if not ab:
+        return ('<section class="card" id="ab"><h2>Measured A/B</h2><p class="sub">Not run yet. <code>graphsnip ab --yes</code> answers your benchmark questions in '
+                'headless Claude Code with and without graphsnip and records the <b>real</b> tokens and cost the CLI reports. It spends real usage '
+                '(capped; default $5), so it is never run automatically.</p></section>')
+    t = ab["totals"]
+    kp = "".join([
+        _kpi("Measured cost saved", f"${t['cost_saved']:.4f}", f"${t['control_cost']:.4f} → ${t['treat_cost']:.4f} ({t['cost_saved_pct']}%)", accent=True),
+        _kpi("Context tokens saved", n(t["context_saved"]), f"{n(t['control_context'])} → {n(t['treat_context'])} ({t['context_saved_pct']}%)"),
+        _kpi("Expected symbols found", f"{t['treat_hits']}/{t['hit_known']}", f"without graphsnip {t['control_hits']}/{t['hit_known']}"),
+        _kpi("Runs", n(ab["paired_tasks"] * ab["repeats"] * 2), f"{ab['repeats']} per task per arm · model {ab['model']}"),
+    ])
+    rows = ""
+    for r in ab["tasks"]:
+        c, g = r["control"], r["treat"]
+        if not (c["runs"] and g["runs"]):
+            continue
+        sv = f"{100 * (c['cost'] - g['cost']) / c['cost']:.0f}%" if c["cost"] else "-"
+        rows += (f"<tr><td>{e(r['question'][:70])}</td><td class='r'>${c['cost']:.4f}</td><td class='r'>${g['cost']:.4f}</td><td class='r'>{sv}</td>"
+                 f"<td class='r'>{n(c['context'])}</td><td class='r'>{n(g['context'])}</td><td class='r'>{c['hits']}/{c['hit_known']} · {g['hits']}/{g['hit_known']}</td></tr>")
+    note = (f"<p class='sub'>Real usage and cost reported by <code>claude -p --output-format json</code>, including caching and every turn. Medians over repeats. "
+            f"Both arms read-only, same model and prompt, fresh session each run. “Found” only checks the expected symbols appear; the answers are saved in "
+            f"<code>{e(str(ab['answers_dir']))}</code> so you can judge quality yourself. Run {e(ab['ts'])}"
+            + (f"; <b>{e(ab['aborted'])}</b>" if ab.get("aborted") else "") + (f"; {ab['failed_runs']} failed run(s) excluded" if ab.get("failed_runs") else "") + ".</p>")
+    return (f'<section class="card fold" id="ab"><details open><summary><span class="ft">Measured A/B (real runs)</span>'
+            f'<span class="fs">cost ${t["control_cost"]:.2f} → ${t["treat_cost"]:.2f} · {t["cost_saved_pct"]}% saved</span></summary><div class="fb">'
+            f'<div class="grid4" style="margin-top:6px">{kp}</div>'
+            f'<div style="overflow:auto"><table><thead><tr><th>Question</th><th class="r">Without $</th><th class="r">With $</th><th class="r">Saved</th>'
+            f'<th class="r">Ctx tokens without</th><th class="r">with</th><th class="r">Found (without · with)</th></tr></thead><tbody>{rows}</tbody></table></div>{note}</div></details></section>')
+
+
 def _routing_card(project: Project, recs: list[dict], price: float) -> str:
     from graphsnip import router, usage
 
@@ -374,9 +414,13 @@ def build_html(project: Project, graph_href: str) -> str:
     kpis = [
         _kpi("Tokens saved", n(head["saved"]), f"{n(head['returned'])} returned vs {n(head['baseline'])} baseline", accent=True),
         _kpi("Reduction", f"{head['pct']}%", f"{head['ratio']}× fewer tokens" if head["ratio"] else ""),
-        _kpi("Est. input cost saved", f"${head['usd_saved']:.2f}", f"at ${price:g} per million input tokens"),
+        _kpi("Est. input cost saved", f"${head['usd_saved']:.2f}", f"list-price estimate at ${price:g}/M, one-off, input only"),
         _kpi("Tool calls", n(head["calls"]), f"{head['deduped']} duplicate reads suppressed" if head["deduped"] else "priced individually"),
     ]
+    ab = _load_ab(project)
+    if ab:
+        at = ab["totals"]
+        kpis.append(_kpi("Measured cost saved (A/B)", f"${at['cost_saved']:.2f}", f"{at['cost_saved_pct']}% · real runs, {ab['paired_tasks']} tasks × {ab['repeats']}", accent=True))
     if bench:
         t = bench["totals"]
         kpis.append(_kpi("Answered correctly", f"{t['answered']}/{t['tasks']}", "benchmark tasks with expected symbol + source"))
@@ -468,6 +512,7 @@ def build_html(project: Project, graph_href: str) -> str:
                               f"{bt['tasks']} tasks · {bt['saved_pct']}% fewer tokens than grep + read · {bt['answered']}/{bt['tasks']} answered with code",
                               "".join(bench_parts)))
     sections.insert(1, _routing_card(project, recs, price))  # right after the tokens/by-tool row
+    sections.insert(2, _ab_card(project))
     sections.append(graph_card)
 
     sections.append(
@@ -486,7 +531,7 @@ def build_html(project: Project, graph_href: str) -> str:
             f'<title>graphsnip dashboard</title><style>{CSS}</style></head><body><div class="wrap">'
             f'<header><div class="brand"><div class="logo">cg</div><div><h1>graphsnip <span class="badge{head_cls}">{e(head_label)}</span></h1>'
             f'<div class="sub">{e(project.root.name)} · generated {now} · v{__version__}</div></div></div><div class="chips">{"".join(chips)}</div></header>'
-            f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
+            f'<nav class="nav"><a href="#top">Savings</a><a href="#routing">Model routing</a><a href="#ab">Measured A/B</a><a href="#recent">Recent calls</a><a href="#benchmark">Benchmark</a><a href="#graph">Graph</a><a href="#method">Method</a></nav>'
             f'<div class="grid4" id="top">{"".join(kpis)}</div>{"".join(sections)}'
             f'<footer>graphsnip is a companion layer on top of Graphify. Graph, communities and AST extraction are Graphify\'s; graphsnip adds symbol-level retrieval, '
             f'context packs, hooks, MCP, and this honest accounting.</footer></div>{TAB_JS}</body></html>')

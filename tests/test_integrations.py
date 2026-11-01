@@ -248,3 +248,58 @@ def test_events_describe_escalation_and_handoff():
     ev = router.events(recs, cfg)
     assert len(ev) == 1 and "handed off, finished on heavy (opus)" in ev[0]["path"] and ev[0]["saved"] < 0
     assert router.summarize(recs, cfg)["decisions"] == 1
+
+
+def _fake_claude(cost_ctl=0.30, cost_gs=0.06):
+    import json as _j
+
+    def runner(cmd, cwd, timeout):
+        treat = any("mcp__graphsnip" in c for c in cmd)
+        u = {"input_tokens": 1000, "cache_creation_input_tokens": 2000, "cache_read_input_tokens": 3000 if treat else 90000, "output_tokens": 400}
+        obj = {"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": cost_gs if treat else cost_ctl,
+               "num_turns": 3 if treat else 9, "duration_ms": 1000, "usage": u, "result": "It lives in hello() at a.py:1", "modelUsage": {"m": {}}}
+        return 0, _j.dumps(obj if not treat else [{"type": "system"}, obj]), ""   # both json shapes
+
+    return runner
+
+
+def test_ab_runs_both_arms_and_measures(tmp_path):
+    from graphsnip import ab
+
+    (tmp_path / "a.py").write_text("def hello():\n    return 1\n\ndef main():\n    return hello()\n")
+    (tmp_path / "CLAUDE.md").write_text("# mine\n")
+    (tmp_path / ".graphsnip").mkdir()
+    (tmp_path / ".graphsnip" / "tasks.json").write_text('{"tasks":[{"id":"t1","type":"locate","question":"where is hello defined","expect":["hello"]}]}')
+    res = ab.run_ab(str(tmp_path), repeats=2, runner=_fake_claude(), log=lambda s: None)
+    t = res["totals"]
+    assert res["paired_tasks"] == 1 and t["cost_saved"] > 0 and abs(t["cost_saved_pct"] - 80.0) < 0.1
+    assert t["context_saved"] > 0 and t["treat_hits"] == 2 and t["control_hits"] == 2
+    assert (tmp_path / ".graphsnip" / "ab.json").exists()
+    assert len(list((tmp_path / ".graphsnip" / "ab").glob("*/*.md"))) == 4
+    assert (tmp_path / "CLAUDE.md").read_text() == "# mine\n"   # the user's repo is never touched
+    assert "MEASURED" in ab.format_table(res)
+
+
+def test_ab_cost_cap_and_dry_run_and_parse(tmp_path):
+    from graphsnip import ab
+
+    (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
+    (tmp_path / ".graphsnip").mkdir()
+    (tmp_path / ".graphsnip" / "tasks.json").write_text('{"tasks":[{"id":"t1","question":"where is hello","expect":["hello"]}]}')
+    res = ab.run_ab(str(tmp_path), repeats=5, max_cost=0.5, runner=_fake_claude(cost_ctl=0.4, cost_gs=0.4), log=lambda s: None)
+    assert res["aborted"] and "cost cap" in res["aborted"]
+    d = ab.run_ab(str(tmp_path), repeats=3, dry_run=True)
+    assert d["runs"] == 6 and "--strict-mcp-config" in d["example"] and "--max-budget-usd" in d["example"]
+    assert ab.parse_result("not json") is None and ab.parse_result('{"type":"result","usage":{"output_tokens":5},"result":"x"}')["output"] == 5
+
+
+def test_dashboard_shows_measured_ab(tmp_path):
+    from graphsnip import ab, dashboard
+    from graphsnip.project import Project
+
+    (tmp_path / "a.py").write_text("def hello():\n    return 1\n")
+    (tmp_path / ".graphsnip").mkdir()
+    (tmp_path / ".graphsnip" / "tasks.json").write_text('{"tasks":[{"id":"t1","question":"where is hello","expect":["hello"]}]}')
+    ab.run_ab(str(tmp_path), repeats=1, runner=_fake_claude(), log=lambda s: None)
+    html = dashboard.build_html(Project(str(tmp_path)), "x.html")
+    assert "Measured A/B (real runs)" in html and "Measured cost saved" in html

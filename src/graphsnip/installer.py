@@ -70,7 +70,7 @@ _ACTIONS = """Pick the first row that fits the request:
 Rules:
 - Answer from the returned code and `file:line` references. Read a file directly only if the graph has no match or you need a literal string, config or docs.
 - If the tools are missing or fail, tell the user to run `graphsnip doctor` in the repo, then fall back to grep.
-- Keep the answer short and finish with one line of the form: `graphsnip: ~N tokens returned vs ~M for grep+read`, using the numbers the tool reports.
+- Keep the answer short. If a graphsnip tool reported token numbers, finish with one line `graphsnip: ~N tokens returned vs ~M for grep+read` using exactly those numbers; if no tool ran or none reported numbers, omit that line.
 """
 
 

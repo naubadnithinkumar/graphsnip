@@ -169,6 +169,27 @@ def cmd_report(a) -> int:
     return 0
 
 
+def cmd_ab(a) -> int:
+    from graphsnip import ab
+
+    if not a.dry_run and not a.yes:
+        print(f"graphsnip ab runs each benchmark question (repeats x 2 arms) as headless Claude Code sessions, with and without graphsnip, and spends real usage\n"
+              f"(capped at ${a.max_cost:g} total, ${a.run_budget:g} per run). Re-run with --yes to start, or --dry-run to preview.", file=sys.stderr)
+        return 2
+    try:
+        res = ab.run_ab(a.root, a.tasks, repeats=a.repeats, limit=a.limit, model=a.model, max_cost=a.max_cost, run_budget=a.run_budget,
+                        dry_run=a.dry_run, keep=a.keep, claude_bin=a.claude_bin)
+    except RuntimeError as e:
+        print(f"[graphsnip ab] {e}", file=sys.stderr)
+        return 1
+    if a.dry_run:
+        print(f"Would run {res['runs']} sessions ({res['tasks']} tasks x {res['repeats']} repeats x 2 arms), cap ${res['max_cost']:g}.")
+        print("Example command (treatment arm):\n  " + " ".join(res["example"]))
+        return 0
+    print(ab.format_table(res))
+    return 0
+
+
 def cmd_bench(a) -> int:
     from graphsnip.bench import format_table, run_bench, save_default_tasks
 
@@ -395,6 +416,17 @@ def main(argv=None) -> int:
     sp = add("report", cmd_report, "write the HTML dashboard")
     sp.add_argument("--open", action="store_true")
     sp.add_argument("--bundle", metavar="DIR", help="write a self-contained folder (dashboard + graph.html) for sharing")
+    sp = add("ab", cmd_ab, "MEASURED A/B: same questions with and without graphsnip in headless Claude Code (real tokens and cost)")
+    sp.add_argument("--tasks", help="tasks JSON (default .graphsnip/tasks.json)")
+    sp.add_argument("--repeats", type=int, default=2, help="runs per task per arm (default 2; more = less noise)")
+    sp.add_argument("--limit", type=int, help="only the first N tasks")
+    sp.add_argument("--model", help="same model for both arms (default: your Claude Code default)")
+    sp.add_argument("--max-cost", type=float, default=5.0, help="stop after this many USD in total (default 5)")
+    sp.add_argument("--run-budget", type=float, default=1.0, help="per-run USD cap passed to claude (default 1)")
+    sp.add_argument("--claude-bin", default="claude")
+    sp.add_argument("--keep", action="store_true", help="keep the temporary repo copies")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--yes", action="store_true", help="confirm that this spends real usage")
     sp = add("bench", cmd_bench, "offline benchmark: grep+read vs Graphify vs graphsnip")
     sp.add_argument("--tasks", help="tasks JSON (default .graphsnip/tasks.json, auto-generated)")
     sp.add_argument("--init-tasks", action="store_true", help="(re)write starter tasks")

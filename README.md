@@ -174,6 +174,23 @@ graphsnip codex --dry-run "refactor session handling"      # print the command o
 `graphsnip install` also writes matching `graphsnip-light|standard|heavy` profiles into the Codex config.
 </details>
 
+## Measured A/B: real tokens and real cost
+
+The dashboard's savings are estimates against a hypothetical baseline. To get **measured** numbers, run the same questions through headless Claude Code with and without graphsnip:
+
+```bash
+graphsnip ab --dry-run              # preview: how many sessions, the exact command
+graphsnip ab --yes --repeats 2      # run it (spends real usage; capped at $5 total by default)
+graphsnip report --open             # "Measured A/B (real runs)" card + headline KPI
+```
+
+- Two throwaway copies of your repo: one with graphsnip uninstalled, one with it installed. Your repo is never modified.
+- Both arms are read-only, use the same model and prompt, and start a fresh session per run, in shuffled order.
+- Cost and tokens are what `claude -p --output-format json` reports (`total_cost_usd`, input, cache and output tokens), so caching and every turn are included.
+- Results are medians over repeats; model runs are noisy, so use `--repeats 3` or more for a number you will quote.
+- "Found" only checks that the expected symbols appear. The full answers are saved under `.graphsnip/ab/` so you can judge quality yourself.
+- Needs the `claude` CLI on your machine. Codex A/B is not implemented yet.
+
 ## Commands
 
 <details>
@@ -195,6 +212,7 @@ graphsnip codex --dry-run "refactor session handling"      # print the command o
 | `graphsnip stats` / `report` | savings in the terminal / the HTML dashboard |
 | `graphsnip usage` | which models actually answered (from Claude Code transcripts) |
 | `graphsnip bench` | offline benchmark: grep+read vs Graphify vs graphsnip |
+| `graphsnip ab` | **measured** A/B in headless Claude Code: real tokens and cost, with vs without graphsnip |
 | `graphsnip install` / `uninstall` | per-client config (`--clients claude,copilot,codex`) |
 | `graphsnip doctor` | check Python, Graphify, tree-sitter, graph freshness, client configs |
 
@@ -252,7 +270,7 @@ Fail-open: any error means "do nothing". Configure in `.graphsnip/config.json` (
 - **Quality is checked, not assumed.** A task counts as answered only if the expected symbol appears with its source. That measures whether the right code was delivered, not whether a model's final answer was right.
 - **Shell savings are exact** (raw vs compressed output). Token counts elsewhere are `chars / 4` estimates; install `graphsnip[accurate]` for tiktoken.
 - **Your repo will differ.** Savings are larger where files are large and lookups are broad. Replace the auto-generated tasks in `.graphsnip/tasks.json` with questions you really ask, then `graphsnip bench`.
-- **Dollars** are `tokens × price per million input tokens`, ignoring output tokens and caching. They are estimates.
+- **Dollars** on the main dashboard are `tokens × price per million input tokens`, ignoring output tokens and caching: a list-price estimate. For measured dollars use `graphsnip ab`.
 
 ## Known limits
 
