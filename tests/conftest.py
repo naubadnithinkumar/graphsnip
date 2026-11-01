@@ -112,3 +112,9 @@ def repo(tmp_path_factory):
         p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
     Project(root).build()
     return root
+
+
+@pytest.fixture(autouse=True)
+def _isolated_codex_home(tmp_path_factory, monkeypatch):
+    """Installer tests must never write into the real ~/.codex."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path_factory.mktemp("codex_home")))

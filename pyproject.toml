@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graphsnip"
-version = "0.1.0"
+version = "0.1.1"
 description = "Token-saving layer on top of Graphify: symbol-level code slicing, context packs, a savings ledger with an honest baseline, hooks and MCP for Claude Code, Copilot and Codex."
 readme = "README.md"
 license = "Apache-2.0"

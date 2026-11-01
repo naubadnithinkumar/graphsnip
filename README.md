@@ -116,9 +116,11 @@ Everything is idempotent (run it twice, nothing changes) and reversible (`graphs
 
 | Client | Files |
 |---|---|
-| Claude Code | `.mcp.json`, `.claude/settings.json` (PreToolUse hook), `CLAUDE.md` block, `.claude/agents/graphsnip-explorer.md` (read-only Haiku subagent) |
-| Copilot (VS Code) | `.vscode/mcp.json`, `.github/copilot-instructions.md` block |
-| Codex | `.codex/config.toml` (or `~/.codex/config.toml` with `--codex-scope user`), `AGENTS.md` block |
+| Claude Code | `.mcp.json`, `.claude/settings.json` (PreToolUse hook), `CLAUDE.md` block, `.claude/agents/graphsnip-explorer.md` (read-only Haiku subagent), `.claude/commands/graphsnip.md` (**`/graphsnip`**) |
+| Copilot (VS Code) | `.vscode/mcp.json`, `.github/copilot-instructions.md` block, `.github/prompts/graphsnip.prompt.md` (**`/graphsnip`** in Copilot Chat, Local sessions) |
+| Codex | `.codex/config.toml` (or `~/.codex/config.toml` with `--codex-scope user`), `AGENTS.md` block, `~/.codex/prompts/graphsnip.md` (**`/prompts:graphsnip`**; Codex only loads prompts from your home dir, restart Codex after install) |
+
+Slash command usage: `/graphsnip how does request routing work`, `/graphsnip impact Flask.dispatch_request`, `/graphsnip savings`. Re-run `graphsnip install` after upgrading to get the commands.
 
 Flags: `--allow-tools` pre-approves the read-only tools in Claude Code, `--portable` writes bare `graphsnip` instead of this machine's absolute path (use it before committing the configs), `--strict` sets hook mode to strict.
 

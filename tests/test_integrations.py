@@ -140,3 +140,34 @@ def test_dashboard_renders_and_escapes(repo):
     assert "Tokens saved" in h and "four approaches" in h and "<script>alert(1)" not in h and "&lt;script&gt;" in h
     out = write_dashboard(p, bundle=str(repo / "bundle"))
     assert out.exists() and (repo / "bundle" / "graph.html").exists()
+
+
+def test_slash_commands_installed_and_removed(tmp_path, monkeypatch):
+    codex_home = tmp_path / "chome"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    installer.install(str(repo), ["all"])
+    claude = (repo / ".claude" / "commands" / "graphsnip.md").read_text()
+    copilot = (repo / ".github" / "prompts" / "graphsnip.prompt.md").read_text()
+    codex = (codex_home / "prompts" / "graphsnip.md").read_text()
+    assert "$ARGUMENTS" in claude and "mcp__graphsnip__gs_pack" in claude and "cg_" not in claude
+    assert "name: graphsnip" in copilot and "graphsnip/*" in copilot
+    assert "$ARGUMENTS" in codex and codex.startswith("---")
+    assert "mcp__graphsnip__gs_pack" in (repo / ".claude" / "agents" / "graphsnip-explorer.md").read_text()
+    installer.uninstall(str(repo), ["all"])
+    assert not (repo / ".claude" / "commands" / "graphsnip.md").exists()
+    assert not (repo / ".github" / "prompts" / "graphsnip.prompt.md").exists()
+    assert not (codex_home / "prompts" / "graphsnip.md").exists()
+
+
+def test_slash_command_never_clobbers_foreign_file(tmp_path):
+    f = tmp_path / ".claude" / "commands" / "graphsnip.md"
+    f.parent.mkdir(parents=True)
+    f.write_text("my own command")
+    try:
+        installer.install(str(tmp_path), ["claude"])
+        raised = False
+    except RuntimeError:
+        raised = True
+    assert raised and f.read_text() == "my own command"
