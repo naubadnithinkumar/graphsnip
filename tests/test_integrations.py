@@ -159,7 +159,7 @@ def test_slash_commands_installed_and_removed(tmp_path, monkeypatch):
     assert "/graphsnip-deep" in copilot  # copilot cannot delegate, so it keeps the manual hand-off
     deep = (repo / ".claude" / "commands" / "graphsnip-deep.md").read_text()
     assert "model:" not in deep and 'running_tier = "session"' in deep
-    assert "name: graphsnip" in copilot and "graphsnip/*" in copilot
+    assert "name: graphsnip" in copilot and "tools:" not in copilot.split("---")[1]
     assert "$ARGUMENTS" in codex and codex.startswith("---")
     assert "mcp__graphsnip__gs_pack" in (repo / ".claude" / "agents" / "graphsnip-explorer.md").read_text()
     installer.uninstall(str(repo), ["all"])

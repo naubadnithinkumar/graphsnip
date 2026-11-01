@@ -69,7 +69,8 @@ _ACTIONS = """Pick the first row that fits the request:
 
 Rules:
 - Answer from the returned code and `file:line` references. Read a file directly only if the graph has no match or you need a literal string, config or docs.
-- If the tools are missing or fail, tell the user to run `graphsnip doctor` in the repo, then fall back to grep.
+- If the graphsnip tools are missing or fail, say once: run `graphsnip doctor` in the repo. Then carry on with your normal tools (search, read files, run commands) and still complete the request; never stop because graphsnip is unavailable.
+- If the request is an action rather than a code question (run tests, coverage, builds, git), just do it with your normal tools; use the graph only to find the relevant code.
 - Keep the answer short. If a graphsnip tool reported token numbers, finish with one line `graphsnip: ~N tokens returned vs ~M for grep+read` using exactly those numbers; if no tool ran or none reported numbers, omit that line.
 """
 
@@ -123,7 +124,7 @@ def copilot_prompt(light_model: str | None, deep: bool = False) -> str:
     name = "graphsnip-deep" if deep else "graphsnip"
     model = "" if deep or not light_model else f"model: {light_model}\n"
     return (f"---\nname: {name}\ndescription: {_DESC_DEEP if deep else _DESC}\nargument-hint: <question or task> | symbol NAME | impact NAME | outline PATH | savings\n"
-            f"agent: agent\ntools: ['graphsnip/*']\n{model}---\n"
+            f"agent: agent\n{model}---\n"
             + _command_body("the text the user typed after the command (if none, treat it as empty)",
                             "session" if deep else ("light" if light_model else None), "copilot", deep))
 
