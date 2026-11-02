@@ -444,6 +444,25 @@ def cmd_doctor(a) -> int:
                       f"Re-run `graphsnip install` (without --portable) to write the full path.")
             elif not os.path.exists(c):
                 print(f"! {label}: server command {c} does not exist; re-run `graphsnip install`.")
+    if not getattr(a, "no_probe", False):
+        from graphsnip.probe import probe_mcp
+
+        for label, f, key in (("claude", mcp_claude, "mcpServers"), ("copilot", p.root / ".vscode" / "mcp.json", "servers")):
+            try:
+                ent = json.loads(f.read_text(encoding="utf-8")).get(key, {}).get("graphsnip")
+            except Exception:
+                ent = None
+            if not ent:
+                continue
+            r = probe_mcp(str(ent.get("command", "")), [str(x) for x in ent.get("args", [])], str(p.root))
+            if r["ok"]:
+                line(True, f"{label}: the MCP server starts and lists {len(r['tools'])} tools ({r['seconds']}s)")
+            else:
+                line(False, f"{label}: the MCP server does NOT work: {r['error']}", "fix the command in the config, then reload the app")
+                if r["stderr"]:
+                    print("    server said: " + r["stderr"].replace("\n", "\n    "))
+        print("  If every server above starts but the assistant still has no graphsnip tools, the app has not started or trusted it:")
+        print("  Claude Code: run /mcp and approve it. VS Code: Command Palette > 'MCP: List Servers' > start/trust graphsnip, then 'Configure Tools'.")
     hook_on = st.exists() and HOOK_MARK in st.read_text(encoding="utf-8", errors="ignore")
     print(f"{'✓' if hook_on else '·'} claude hook: {'installed' if hook_on else 'not installed'}  (mode: {p.config()['mode']})")
     print("\nAll good." if ok else "\nSome checks failed; see arrows above.")
@@ -550,7 +569,8 @@ def main(argv=None) -> int:
     sp = add("uninstall", cmd_uninstall, "remove everything install added")
     sp.add_argument("--clients", default="all")
     sp.add_argument("--codex-scope", choices=["project", "user"], default="project")
-    add("doctor", cmd_doctor, "check the setup")
+    sp = add("doctor", cmd_doctor, "check the setup (also starts the configured MCP servers to prove they work)")
+    sp.add_argument("--no-probe", action="store_true", help="skip starting the MCP servers")
 
     args = ap.parse_args(argv)
     if not getattr(args, "fn", None):

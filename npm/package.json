@@ -1,6 +1,6 @@
 {
   "name": "graphsnip",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Thin npm wrapper for graphsnip, a token-saving layer on top of Graphify (the real tool is a Python package).",
   "bin": { "graphsnip": "bin/graphsnip.js" },
   "files": ["bin", "README.md"],

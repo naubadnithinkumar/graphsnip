@@ -331,3 +331,33 @@ def test_copilot_config_uses_absolute_path_even_when_portable(tmp_path, monkeypa
     cl = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["graphsnip"]
     assert vs["command"] == "/opt/bin/graphsnip"
     assert cl["command"] == "graphsnip"
+
+
+def test_probe_reports_a_working_and_a_broken_server(tmp_path):
+    import sys
+
+    from graphsnip.probe import probe_mcp
+
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    ok = probe_mcp(sys.executable, ["-m", "graphsnip", "serve", "--root", "."], str(tmp_path))
+    assert ok["ok"] and "gs_pack" in ok["tools"] and len(ok["tools"]) == 7
+    bad = probe_mcp("/definitely/not/here/graphsnip", ["serve"], str(tmp_path))
+    assert not bad["ok"] and "not found" in bad["error"]
+    crash = probe_mcp(sys.executable, ["-c", "import sys; sys.stderr.write('boom: ImportError x'); sys.exit(1)"], str(tmp_path), timeout=5)
+    assert not crash["ok"] and "boom" in crash["stderr"]
+
+
+def test_doctor_probes_configured_servers(tmp_path, capsys):
+    import json
+    import sys
+
+    from graphsnip import cli
+
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"graphsnip": {"command": sys.executable, "args": ["-m", "graphsnip", "serve", "--root", "."]}}}))
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".vscode" / "mcp.json").write_text(json.dumps({"servers": {"graphsnip": {"type": "stdio", "command": "/nope/graphsnip", "args": ["serve"]}}}))
+    cli.main(["doctor", "--root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "claude: the MCP server starts and lists 7 tools" in out
+    assert "copilot: the MCP server does NOT work" in out and "command not found" in out
